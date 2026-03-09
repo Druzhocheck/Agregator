@@ -191,8 +191,16 @@ function toClobTokenIds(raw: string): string[] {
 }
 
 function normalizeBookRow(row: unknown): OrderBookLevel {
+  if (Array.isArray(row)) {
+    // Support [price, size] tuple format
+    const [p, s] = row
+    return { price: String(p ?? ''), size: String(s ?? '') }
+  }
   const r = row as Record<string, unknown>
-  return { price: String(r?.price ?? ''), size: String(r?.size ?? '') }
+  // Support {price, size} and {px, qty} (Exchange Partner API)
+  const price = r?.price ?? r?.px ?? ''
+  const size = r?.size ?? r?.qty ?? ''
+  return { price: String(price), size: String(size) }
 }
 
 function normalizeOrderBook(data: Record<string, unknown>): OrderBookSummary {
@@ -212,7 +220,23 @@ function normalizeOrderBook(data: Record<string, unknown>): OrderBookSummary {
   }
 }
 
-/** Orderbook: GET /book then POST /books fallback (same as reference). */
+async function fetchLastTradePrice(tokenId: string): Promise<string> {
+  const idsToTry = toClobTokenIds(normalizeTokenIdForApi(tokenId))
+  for (const id of idsToTry) {
+    try {
+      const res = await fetch(`${CLOB_API}/last-trade-price?token_id=${encodeURIComponent(id)}`)
+      if (res.ok) {
+        const json = (await res.json()) as { price?: string }
+        if (json?.price) return String(json.price)
+      }
+    } catch {
+      // ignore
+    }
+  }
+  return ''
+}
+
+/** Orderbook: GET /book then POST /books fallback. Fetches last_trade_price separately if missing. */
 export async function fetchOrderBook(tokenId: string): Promise<OrderBookSummary | null> {
   const sentAt = Date.now()
   const idsToTry = toClobTokenIds(normalizeTokenIdForApi(tokenId))
@@ -256,7 +280,13 @@ export async function fetchOrderBook(tokenId: string): Promise<OrderBookSummary 
       durationMs: responseAt - sentAt,
     }, { component: 'polymarket', function: 'fetchOrderBook' })
     if (!data) return null
-    return normalizeOrderBook(data)
+    const summary = normalizeOrderBook(data)
+    // GET /book sometimes omits last_trade_price; fetch separately if missing
+    if (!summary.last_trade_price) {
+      const lastPrice = await fetchLastTradePrice(tokenId)
+      if (lastPrice) summary.last_trade_price = lastPrice
+    }
+    return summary
   } catch (e) {
     logger.error('fetchOrderBook failed', { tokenId: tokenId.slice(0, 24) + '…', error: String(e) }, { message: (e as Error).message }, { component: 'polymarket', function: 'fetchOrderBook' })
     return null

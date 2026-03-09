@@ -20,8 +20,12 @@ export function useMarketWs(tokenId: string | null) {
   const [trades, setTrades] = useState<LiveTrade[]>([])
   const tradesLimit = 50
   const onMessageRef = useRef<(data: MarketWsMessage) => void>()
+  const activeTokenRef = useRef<string | null>(null)
 
   const onMessage = useCallback((data: MarketWsMessage) => {
+    const activeToken = activeTokenRef.current
+    const messageAssetId = (data as { asset_id?: string }).asset_id
+    if (activeToken && messageAssetId && messageAssetId !== activeToken) return
     if (data.event_type === 'book') {
       const b = data as BookMessage
       setBook({
@@ -50,8 +54,15 @@ export function useMarketWs(tokenId: string | null) {
     if (!tokenId) return
     const id = String(tokenId).trim().replace(/^["'\s\[\]]+|["'\s\[\]]+$/g, '')
     if (!id) return
+    activeTokenRef.current = id
+    // Prevent stale book from previous token from overriding fresh REST data.
+    setBook(null)
+    setTrades([])
     const close = createMarketWs([id], (data) => onMessageRef.current?.(data))
-    return close
+    return () => {
+      close()
+      if (activeTokenRef.current === id) activeTokenRef.current = null
+    }
   }, [tokenId])
 
   return { book, trades }

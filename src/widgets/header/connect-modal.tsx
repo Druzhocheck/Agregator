@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { createPortal } from 'react-dom'
 import { useConnect, useAccount } from 'wagmi'
 
 export function useConnectModal() {
@@ -9,10 +10,12 @@ export function useConnectModal() {
   const openConnectModal = () => setOpen(true)
   const close = () => setOpen(false)
 
-  const ConnectModal = () => (
-    <>
-      {open && (
-        <div className="fixed inset-0 z-[100] overflow-y-auto p-4">
+  const ConnectModal = () =>
+    typeof document === 'undefined'
+      ? null
+      : createPortal(
+          open ? (
+            <div className="fixed inset-0 z-[9999] overflow-y-auto p-4">
           <div className="fixed inset-0 bg-black/60 backdrop-blur-sm" onClick={close} aria-hidden />
           <div className="relative flex min-h-[100dvh] items-center justify-center py-8">
             <div className="w-full max-w-md rounded-panel-lg bg-bg-secondary border border-white/10 shadow-xl p-6">
@@ -40,9 +43,10 @@ export function useConnectModal() {
             </div>
           </div>
         </div>
-      )}
-    </>
-  )
+          )
+        : null,
+        document.body
+      )
 
   return { openConnectModal, ConnectModal }
 }
