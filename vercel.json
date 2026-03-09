@@ -1,3 +1,8 @@
 {
-  "rewrites": [{ "source": "/(.*)", "destination": "/index.html" }]
+  "rewrites": [
+    { "source": "/api/proxy/gamma/:path*", "destination": "https://dreams-backend-hmik.onrender.com/proxy/gamma/:path*" },
+    { "source": "/api/proxy/data/:path*", "destination": "https://dreams-backend-hmik.onrender.com/proxy/data/:path*" },
+    { "source": "/api/proxy/bridge/:path*", "destination": "https://dreams-backend-hmik.onrender.com/proxy/bridge/:path*" },
+    { "source": "/(.*)", "destination": "/index.html" }
+  ]
 }

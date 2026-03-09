@@ -1,13 +1,13 @@
 const dev = typeof import.meta !== 'undefined' && import.meta.env?.DEV
-/** Backend base for proxy (gamma/data/bridge). Derive from VITE_ONBOARD_API when set. */
-const proxyBase =
-  typeof import.meta !== 'undefined' && import.meta.env?.VITE_ONBOARD_API?.trim?.()
-    ? String(import.meta.env.VITE_ONBOARD_API).replace(/\/onboard\/?$/, '')
-    : ''
-export const GAMMA_API = dev ? '/api/gamma' : proxyBase ? `${proxyBase}/proxy/gamma` : 'https://gamma-api.polymarket.com'
+// Production: use /api/proxy/* (Vercel rewrites to backend) or VITE_API_PROXY / VITE_ONBOARD_API
+const apiProxy = typeof import.meta !== 'undefined' ? (import.meta.env as Record<string, string | undefined>).VITE_API_PROXY : ''
+const onboardApi = typeof import.meta !== 'undefined' ? (import.meta.env as Record<string, string | undefined>).VITE_ONBOARD_API : ''
+const proxyBase = (typeof apiProxy === 'string' && apiProxy.trim()) || (typeof onboardApi === 'string' && onboardApi ? String(onboardApi).replace(/\/onboard\/?$/, '').trim() : '')
+const proxyBaseClean = proxyBase ? proxyBase.replace(/\/$/, '') : ''
+export const GAMMA_API = dev ? '/api/gamma' : proxyBaseClean ? `${proxyBaseClean}/proxy/gamma` : '/api/proxy/gamma'
 export const CLOB_API = 'https://clob.polymarket.com'
-export const DATA_API = dev ? '/api/data' : proxyBase ? `${proxyBase}/proxy/data` : 'https://data-api.polymarket.com'
-export const BRIDGE_API = dev ? '/api/bridge' : proxyBase ? `${proxyBase}/proxy/bridge` : 'https://bridge.polymarket.com'
+export const DATA_API = dev ? '/api/data' : proxyBaseClean ? `${proxyBaseClean}/proxy/data` : '/api/proxy/data'
+export const BRIDGE_API = dev ? '/api/bridge' : proxyBaseClean ? `${proxyBaseClean}/proxy/bridge` : '/api/proxy/bridge'
 export const WS_MARKET = 'wss://ws-subscriptions-clob.polymarket.com/ws/market'
 
 export const POLYGON_CHAIN_ID = 137
