@@ -1,0 +1,62 @@
+# Ave — Prediction Markets Aggregator
+
+Aggregator for prediction markets (Polymarket, Azuro, and others) with trading UI, orderbook, profile, and deposits/withdrawals.
+
+## Stack
+
+- **React 18** + **TypeScript**
+- **Vite** — build and dev server
+- **Tailwind CSS** — design system (dark theme, glassmorphism, purple/blue accents)
+- **Wagmi + Viem** — wallet and chain (Avalanche, Polygon, Gnosis)
+- **TanStack Query** — server state and caching
+- **React Router** — routing
+
+## Design
+
+- Dark theme: `#0f172a` / `#1e293b` background, violet `#8b5cf6`, blue `#3b82f6`, pink `#ec4899`
+- Glassmorphism: `backdrop-blur`, semi-transparent panels, thin borders
+- Typography: Inter / Plus Jakarta Sans, JetBrains Mono for numbers and addresses
+- Custom scrollbars, 12–16px radius, 200–300ms transitions
+
+## Structure (FSD-style)
+
+- `app/` — layout, router, providers
+- `pages/` — markets, market detail, profile
+- `widgets/` — header, sidebars, orderbook, order form, featured, grid, activity
+- `features/` — search, deposit/withdraw modals
+- `entities/` — market/event types
+- `shared/` — api (Polymarket Gamma/CLOB/Data), config, lib (cn), WebSocket stub
+
+## Polymarket API
+
+- **Gamma** (`gamma-api.polymarket.com`): events, markets, search, tags
+- **CLOB** (`clob.polymarket.com`): orderbook (`/book?token_id=...`), order submission (auth)
+- **Data** (`data-api.polymarket.com`): leaderboard, positions, trades
+- **WebSocket** (`ws-subscriptions-clob.polymarket.com/ws/market`): real-time book and trades
+
+## Scripts
+
+```bash
+npm install
+npm run dev    # http://localhost:5173
+npm run build
+npm run preview
+```
+
+## Implemented
+
+- Header: logo, search (debounced, Polymarket public-search), network selector, balance dropdown, wallet connect, profile menu
+- Markets page: left sidebar (categories, liquidity filter, quick filters), featured markets, grid (no duplicate with featured), toolbar, right sidebar (activity, leaderboard, portfolio)
+- Market detail: orderbook (asks/bids, spread), market info, recent trades placeholder, order form (Buy/Sell, amount, fee, validation)
+- Profile: connected platforms, balances table, positions (empty state), transaction history tabs
+- Deposit / Withdraw modals (UI only; chain/token selection, amount, summary, confirm)
+- Polymarket API layer: events, markets, event/market by slug, orderbook, search, tags, leaderboard
+
+## Next steps
+
+- Wire Deposit/Withdraw to Polymarket Bridge API and wallet
+- CLOB auth and order signing (post order, cancel)
+- WebSocket subscription on market page for live orderbook and trades
+- Positions and history from Data API when wallet connected
+- Azuro (and other) integrations
+- Copy-trading and smart contracts (Solidity) on Avalanche

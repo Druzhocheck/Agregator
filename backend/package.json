@@ -1,0 +1,17 @@
+{
+  "name": "ave-backend",
+  "private": true,
+  "version": "0.0.1",
+  "type": "module",
+  "scripts": {
+    "dev": "node src/server.js",
+    "build": "node --check src/server.js"
+  },
+  "dependencies": {
+    "@polymarket/builder-signing-sdk": "^0.0.8",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "ethers": "^5.7.2",
+    "express": "^4.21.2"
+  }
+}
