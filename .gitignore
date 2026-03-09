@@ -21,6 +21,9 @@ dist-ssr
 .DS_Store
 *.suo
 *.ntvs*
+out
+lib
+cache
 *.njsproj
 *.sln
 *.sw?

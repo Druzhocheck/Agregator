@@ -12,9 +12,10 @@ export function useConnectModal() {
   const ConnectModal = () => (
     <>
       {open && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={close} aria-hidden />
-          <div className="relative rounded-panel-lg bg-bg-secondary border border-white/10 shadow-xl max-w-md w-full p-6">
+        <div className="fixed inset-0 z-[100] overflow-y-auto p-4">
+          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm" onClick={close} aria-hidden />
+          <div className="relative flex min-h-[100dvh] items-center justify-center py-8">
+            <div className="w-full max-w-md rounded-panel-lg bg-bg-secondary border border-white/10 shadow-xl p-6">
             <h2 className="text-h3 text-text-primary mb-4">Connect Wallet</h2>
             <div className="space-y-2">
               {connectors.map((c) => (
@@ -36,6 +37,7 @@ export function useConnectModal() {
             >
               Cancel
             </button>
+            </div>
           </div>
         </div>
       )}

@@ -33,6 +33,13 @@ export function ProfileDropdown() {
               <User className="w-4 h-4" />
               Profile
             </Link>
+            <Link
+              to="/profile#copy-trading"
+              onClick={() => setOpen(false)}
+              className="flex items-center gap-2 px-3 py-2 text-small text-text-body hover:bg-white/5"
+            >
+              Copy Trading Vault
+            </Link>
             <button
               type="button"
               className="w-full flex items-center gap-2 px-3 py-2 text-small text-text-body hover:bg-white/5"

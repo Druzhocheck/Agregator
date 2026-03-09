@@ -1,6 +1,7 @@
 import { useAccount } from 'wagmi'
 import { ConnectedPlatforms } from '@/widgets/connected-platforms'
 import { BalancesSection } from '@/widgets/balances-section'
+import { CopyTradingSection } from '@/widgets/copy-trading-section'
 import { PositionsSection } from '@/widgets/positions-section'
 import { TransactionHistory } from '@/widgets/transaction-history'
 import { logger } from '@/shared/lib/logger'
@@ -25,6 +26,9 @@ export function ProfilePage() {
           </section>
           <section className="mb-10">
             <BalancesSection />
+          </section>
+          <section id="copy-trading" className="mb-10 scroll-mt-8">
+            <CopyTradingSection />
           </section>
           <section className="mb-10">
             <PositionsSection />

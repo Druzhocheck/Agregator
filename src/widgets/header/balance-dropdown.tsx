@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { Link } from 'react-router-dom'
 import { ChevronDown, Plus } from 'lucide-react'
 import { useAccount } from 'wagmi'
 import { useBridgeModals } from '@/shared/context/bridge-modals'
@@ -55,14 +56,19 @@ export function BalanceDropdown() {
                 </div>
               ))
             )}
-            <div className="border-t border-white/10 mt-2 pt-2 px-3">
-              <button type="button" onClick={() => { openDeposit(); setOpen(false) }} className="text-small text-accent-violet hover:underline">
-                Deposit
-              </button>
-              <span className="mx-2 text-text-muted">·</span>
-              <button type="button" onClick={() => { openWithdraw(); setOpen(false) }} className="text-small text-accent-blue hover:underline">
-                Withdraw
-              </button>
+            <div className="border-t border-white/10 mt-2 pt-2 px-3 space-y-1">
+              <div>
+                <button type="button" onClick={() => { openDeposit(); setOpen(false) }} className="text-small text-accent-violet hover:underline">
+                  Deposit
+                </button>
+                <span className="mx-2 text-text-muted">·</span>
+                <button type="button" onClick={() => { openWithdraw(); setOpen(false) }} className="text-small text-accent-blue hover:underline">
+                  Withdraw
+                </button>
+              </div>
+              <Link to="/profile#copy-trading" onClick={() => setOpen(false)} className="block text-small text-accent-violet/90 hover:underline">
+                Copy Trading Vault
+              </Link>
             </div>
           </div>
         </>

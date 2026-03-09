@@ -7,6 +7,12 @@ export const BRIDGE_API = dev ? '/api/bridge' : 'https://bridge.polymarket.com'
 export const WS_MARKET = 'wss://ws-subscriptions-clob.polymarket.com/ws/market'
 
 export const POLYGON_CHAIN_ID = 137
+export const AVALANCHE_CHAIN_ID = 43114
+
+/** Copy Trading Vault (Avalanche C-Chain) — deposit/withdraw USDC for copy-trading */
+export const COPY_TRADING_VAULT_ADDRESS = '0xC85f003E34Aa97d7e6e1646ab4FaE44857E8f065' as const
+/** USDC on Avalanche */
+export const USDC_AVALANCHE = '0xB97EF9Ef8734C71904D8002F8b6Bc66Dd9c48a6E' as const
 
 export const SUPPORTED_NETWORKS = [
   { id: 'avalanche', name: 'Avalanche', chainId: 43114 },
