@@ -1,6 +1,6 @@
-# Agragator Dream — Prediction Markets Aggregator
+# Dreams — Prediction Markets Aggregator
 
-Aggregator for prediction markets (Polymarket, Azuro, and others) with trading UI, orderbook, profile, and deposits/withdrawals.
+Aggregator for prediction market protocols (Polymarket, Opinion, Limitless and others) with trading UI, orderbook, profile, trading/research tools and deposits/withdrawals.
 
 ## Stack
 
