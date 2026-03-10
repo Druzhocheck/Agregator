@@ -1,4 +1,4 @@
-# Ave — Prediction Markets Aggregator
+# Agragator Dream — Prediction Markets Aggregator
 
 Aggregator for prediction markets (Polymarket, Azuro, and others) with trading UI, orderbook, profile, and deposits/withdrawals.
 
@@ -42,21 +42,3 @@ npm run dev    # http://localhost:5173
 npm run build
 npm run preview
 ```
-
-## Implemented
-
-- Header: logo, search (debounced, Polymarket public-search), network selector, balance dropdown, wallet connect, profile menu
-- Markets page: left sidebar (categories, liquidity filter, quick filters), featured markets, grid (no duplicate with featured), toolbar, right sidebar (activity, leaderboard, portfolio)
-- Market detail: orderbook (asks/bids, spread), market info, recent trades placeholder, order form (Buy/Sell, amount, fee, validation)
-- Profile: connected platforms, balances table, positions (empty state), transaction history tabs
-- Deposit / Withdraw modals (UI only; chain/token selection, amount, summary, confirm)
-- Polymarket API layer: events, markets, event/market by slug, orderbook, search, tags, leaderboard
-
-## Next steps
-
-- Wire Deposit/Withdraw to Polymarket Bridge API and wallet
-- CLOB auth and order signing (post order, cancel)
-- WebSocket subscription on market page for live orderbook and trades
-- Positions and history from Data API when wallet connected
-- Azuro (and other) integrations
-- Copy-trading and smart contracts (Solidity) on Avalanche
