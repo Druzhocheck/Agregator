@@ -58,7 +58,7 @@ const limit = 30
 const defaultOrder = 'volume'
 const defaultAsc = false
 
-export type EventsOrder = 'volume' | 'liquidity' | 'start_date' | 'end_date_asc' | 'newest'
+export type EventsOrder = 'volume' | 'volume_24hr' | 'volume_7d' | 'liquidity' | 'start_date' | 'end_date_asc' | 'newest'
 
 export async function fetchEvents(params: {
   limit?: number
@@ -79,8 +79,11 @@ export async function fetchEvents(params: {
   search.set('offset', String(params.offset ?? 0))
   const order = params.order ?? defaultOrder
   const asc = params.ascending ?? defaultAsc
-  // Gamma API returns 422 for start_date and end_date. Use volume/liquidity only.
-  const gammaOrder = order === 'newest' || order === 'end_date_asc' ? 'volume' : order
+  // Gamma API returns 422 for start_date, end_date, volume_24hr, volume_7d. Use volume/liquidity only.
+  const gammaOrder =
+    order === 'newest' || order === 'end_date_asc' || order === 'volume_24hr' || order === 'volume_7d'
+      ? 'volume'
+      : order
   const gammaAsc = order === 'liquidity' ? asc : false
   search.set('order', gammaOrder)
   search.set('ascending', String(gammaAsc))

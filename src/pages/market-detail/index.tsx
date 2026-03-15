@@ -6,6 +6,7 @@ import { getEventOutcomeTokens } from '@/shared/lib/market-utils'
 import { logger } from '@/shared/lib/logger'
 import { OrderbookPanel } from '@/widgets/orderbook-panel'
 import { MarketInfoPanel } from '@/widgets/market-info-panel'
+import { MarketPositionsPanel } from '@/widgets/market-positions-panel'
 import { OrderFormPanel } from '@/widgets/order-form-panel'
 import { OutcomesPanel } from '@/widgets/outcomes-panel'
 
@@ -82,9 +83,25 @@ export function MarketDetailPage() {
         />
       </div>
       <div className="flex-1 min-w-0 flex flex-col gap-4">
-        <h1 className="text-h3 font-bold text-text-primary leading-tight">
-          {event.title ?? event.ticker ?? event.id}
-        </h1>
+        <div className="rounded-panel bg-bg-secondary/80 backdrop-blur-panel border border-white/10 p-4">
+          <h1 className="text-h3 font-bold text-text-primary leading-tight">
+            {event.title ?? event.ticker ?? event.id}
+          </h1>
+          {event.description && (
+            <p className="mt-2 text-body text-text-muted leading-relaxed">{event.description}</p>
+          )}
+          <div className="flex flex-wrap gap-4 mt-3 text-tiny text-text-muted">
+            {event.markets?.[0]?.resolutionSource && (
+              <span>Source: {event.markets[0].resolutionSource}</span>
+            )}
+            {(event.endDate ?? event.markets?.[0]?.endDate) && (
+              <span>Resolves: {new Date(event.endDate ?? event.markets?.[0]?.endDate!).toLocaleString()}</span>
+            )}
+            {(event.volumeNum ?? Number(event.volume ?? 0)) > 0 && (
+              <span>Volume: ${((event.volumeNum ?? Number(event.volume ?? 0)) / 1e6).toFixed(2)}M</span>
+            )}
+          </div>
+        </div>
         {outcomeTokens.length > 0 && (
           <OutcomesPanel
             event={event}
@@ -93,6 +110,15 @@ export function MarketDetailPage() {
             onSelectOutcome={handleSelectOutcome}
           />
         )}
+        {event.markets?.[0]?.resolutionSource && (
+          <section className="rounded-panel bg-bg-secondary/80 backdrop-blur-panel border border-white/10 p-4">
+            <h3 className="text-base font-bold text-text-primary mb-2">Rules</h3>
+            <p className="text-small text-text-muted leading-relaxed">
+              Resolution source: {event.markets[0].resolutionSource}
+            </p>
+          </section>
+        )}
+        <MarketPositionsPanel event={event} />
         <MarketInfoPanel event={event} tokenId={selectedTokenId} />
       </div>
       <div className="w-[24%] min-w-[240px] max-w-[300px] shrink-0">

@@ -1,6 +1,6 @@
 import type { PolymarketEvent, PolymarketMarket } from '@/entities/market/types'
 import type { OutcomeToken } from '@/shared/lib/market-utils'
-import { parseOutcomePrices } from '@/shared/lib/market-utils'
+import { getMarketOutcomeDisplayName, parseOutcomePrices } from '@/shared/lib/market-utils'
 import { cn } from '@/shared/lib/cn'
 import { logger } from '@/shared/lib/logger'
 
@@ -59,10 +59,15 @@ function useOutcomePrice(tokenId: string | undefined, market: PolymarketMarket, 
   return fallback
 }
 
+function formatPct(p: number): string {
+  const pct = p * 100
+  if (pct === 0 || (pct > 0 && pct < 1)) return '<1%'
+  return `${Math.round(pct)}%`
+}
+
 function OutcomeRow({
   title,
   vol,
-  endDate,
   yesPrice,
   noPrice,
   isYesSelected,
@@ -73,7 +78,6 @@ function OutcomeRow({
 }: {
   title: string
   vol: number
-  endDate?: string | null
   yesPrice: number
   noPrice: number
   isYesSelected: boolean
@@ -82,7 +86,6 @@ function OutcomeRow({
   onSelectNo: () => void
   onSelectRow?: () => void
 }) {
-  const yesPct = Math.min(100, Math.max(0, Math.round(yesPrice * 100)))
   const volStr = vol >= 1e6 ? `$${(vol / 1e6).toFixed(2)}M` : vol >= 1e3 ? `$${(vol / 1e3).toFixed(1)}K` : `$${vol.toFixed(0)}`
 
   return (
@@ -103,13 +106,10 @@ function OutcomeRow({
         <p className="text-base font-semibold text-text-primary break-words" title={title}>
           {title}
         </p>
-        <p className="text-tiny text-text-muted mt-0.5">
-          {volStr} Vol
-          {endDate && <span className="ml-2">{new Date(endDate).toLocaleDateString()}</span>}
-        </p>
+        <p className="text-tiny text-text-muted mt-0.5">{volStr} Vol</p>
       </div>
       <div className="flex items-center gap-4 shrink-0">
-        <span className="font-mono text-lg font-bold text-text-primary w-12 text-right">{yesPct}%</span>
+        <span className="font-mono text-lg font-bold text-text-primary w-12 text-right">{formatPct(yesPrice)}</span>
         <div className="flex gap-2">
           <button
             type="button"
@@ -141,14 +141,19 @@ function OutcomeRow({
 
 export function OutcomesPanel({ event, outcomeTokens, selectedIndex, onSelectOutcome }: OutcomesPanelProps) {
   const eventVol = event.volumeNum ?? Number(event.volume ?? 0) ?? 0
-  const endDate = event.endDate ?? outcomeTokens[0]?.market?.endDate
 
-  const rows: { market: PolymarketMarket; yesToken: OutcomeToken; noToken: OutcomeToken }[] = []
+  const rows: {
+    market: PolymarketMarket
+    yesToken: OutcomeToken
+    noToken: OutcomeToken
+    yesIndex: number
+    noIndex: number
+  }[] = []
   for (let i = 0; i < outcomeTokens.length; i += 2) {
     const yesToken = outcomeTokens[i]
     const noToken = outcomeTokens[i + 1]
     if (!yesToken || !noToken) continue
-    rows.push({ market: yesToken.market, yesToken, noToken })
+    rows.push({ market: yesToken.market, yesToken, noToken, yesIndex: i, noIndex: i + 1 })
   }
 
   if (rows.length === 0) {
@@ -167,16 +172,21 @@ export function OutcomesPanel({ event, outcomeTokens, selectedIndex, onSelectOut
         Select an outcome and click Buy Yes or Buy No, or use the form on the right.
       </p>
       <div className="flex flex-col gap-2">
-        {rows.map(({ market, yesToken, noToken }, i) => (
+        {[...rows]
+          .sort((a, b) => {
+            const aYes = getFallbackFromMarket(a.market, 'Yes')
+            const bYes = getFallbackFromMarket(b.market, 'Yes')
+            return bYes - aYes
+          })
+          .map(({ market, yesToken, noToken, yesIndex, noIndex }, i) => (
           <OutcomeRowWithPrices
             key={market.id ?? i}
             market={market}
             yesToken={yesToken}
             noToken={noToken}
             vol={market.volumeNum ?? eventVol}
-            endDate={market.endDate ?? endDate}
-            yesIndex={i * 2}
-            noIndex={i * 2 + 1}
+            yesIndex={yesIndex}
+            noIndex={noIndex}
             selectedIndex={selectedIndex}
             onSelectOutcome={onSelectOutcome}
           />
@@ -191,7 +201,6 @@ function OutcomeRowWithPrices({
   yesToken,
   noToken,
   vol,
-  endDate,
   yesIndex,
   noIndex,
   selectedIndex,
@@ -201,13 +210,12 @@ function OutcomeRowWithPrices({
   yesToken: OutcomeToken
   noToken: OutcomeToken
   vol: number
-  endDate?: string | null
   yesIndex: number
   noIndex: number
   selectedIndex: number
   onSelectOutcome: (index: number) => void
 }) {
-  const title = market.groupItemTitle || market.question || `Outcome ${yesIndex / 2 + 1}`
+  const title = getMarketOutcomeDisplayName(market) || market.question || `Outcome ${yesIndex / 2 + 1}`
   const yesPrice = useOutcomePrice(yesToken.tokenId, yesToken.market, 'Yes')
   const noPrice = useOutcomePrice(noToken.tokenId, noToken.market, 'No')
 
@@ -215,7 +223,6 @@ function OutcomeRowWithPrices({
     <OutcomeRow
       title={title}
       vol={vol}
-      endDate={endDate}
       yesPrice={yesPrice}
       noPrice={noPrice}
       isYesSelected={selectedIndex === yesIndex}

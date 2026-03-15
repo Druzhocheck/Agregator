@@ -16,6 +16,8 @@ export interface PolymarketEvent {
   liquidity?: string | null
   volume?: string | null
   volumeNum?: number | null
+  volumeNum24hr?: number | null
+  volumeNum7d?: number | null
   liquidityNum?: number | null
   markets?: PolymarketMarket[]
   tags?: { slug?: string; label?: string }[]

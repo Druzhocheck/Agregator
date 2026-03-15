@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { RefreshCw } from 'lucide-react'
 import { fetchOrderBook } from '@/shared/api/polymarket'
@@ -21,6 +21,9 @@ function BookContent({
   tokenId: string
   onPriceClick?: (price: number) => void
 }) {
+  const scrollRef = useRef<HTMLDivElement | null>(null)
+  const spreadRef = useRef<HTMLDivElement | null>(null)
+  const centeredForTokenRef = useRef<string | null>(null)
   const formatCents = (price: number) => `${(price * 100).toFixed(1)}¢`
   const { data: restBook, isLoading, isError, refetch } = useQuery({
     queryKey: ['orderbook', tokenId],
@@ -40,20 +43,32 @@ function BookContent({
   const rawBids = useRestForDepth ? restBids : wsBids
   const lastTradePrice = wsBook?.lastTradePrice ?? (restBook as { last_trade_price?: string } | undefined)?.last_trade_price
 
-  // Asks: best (lowest) first — ascending
-  const asks = [...rawAsks]
-    .sort((a, b) => Number(a.price) - Number(b.price))
-    .slice(0, 50)
+  // Asks: flipped — show highest first (top), best ask near spread (bottom of asks block)
+  const sortedAsks = [...rawAsks].sort((a, b) => Number(a.price) - Number(b.price))
+  const asks = sortedAsks.slice(0, 150).reverse()
   // Bids: best (highest) first — descending
   const bids = [...rawBids]
     .sort((a, b) => Number(b.price) - Number(a.price))
-    .slice(0, 50)
-  const bestAsk = asks[0]?.price
+    .slice(0, 150)
+  const bestAsk = asks.length > 0 ? asks[asks.length - 1]?.price : sortedAsks[0]?.price
   const bestBid = bids[0]?.price
   const spreadAbs = bestAsk && bestBid ? Number(bestAsk) - Number(bestBid) : 0
   const spreadPct = bestAsk && bestBid ? (spreadAbs / Number(bestBid)) * 100 : 0
   const isEmpty = rawAsks.length === 0 && rawBids.length === 0
   const maxSize = Math.max(...[...asks, ...bids].map((l) => Number(l.size)), 1)
+
+  useEffect(() => {
+    if (isLoading || isEmpty) return
+    if (centeredForTokenRef.current === tokenId) return
+    const container = scrollRef.current
+    const spread = spreadRef.current
+    if (!container || !spread) return
+
+    const spreadCenter = spread.offsetTop + spread.offsetHeight / 2
+    const nextScrollTop = Math.max(0, spreadCenter - container.clientHeight / 2)
+    container.scrollTop = nextScrollTop
+    centeredForTokenRef.current = tokenId
+  }, [tokenId, isLoading, isEmpty, asks.length, bids.length])
 
   if (isLoading) {
     return (
@@ -82,11 +97,11 @@ function BookContent({
   }
 
   return (
-    <div className="flex-1 overflow-y-auto scrollbar-hover font-mono text-small">
-      <div className="grid grid-cols-[1fr_1fr_1fr_3rem] gap-x-2 gap-y-0 px-3 py-2 bg-bg-tertiary/50 text-text-muted border-b border-white/10">
+    <div ref={scrollRef} className="flex-1 overflow-y-auto scrollbar-hover font-mono text-small">
+      <div className="grid grid-cols-[1fr_1fr_1fr_3rem] gap-x-2 gap-y-0 px-3 py-2 bg-bg-tertiary/50 text-text-muted border-b border-white/10 text-left">
         <span>Price (¢)</span>
-        <span className="text-right">Size</span>
-        <span className="text-right">Total</span>
+        <span>Size</span>
+        <span>Total</span>
         <span />
       </div>
       <div className="text-status-error">
@@ -110,9 +125,9 @@ function BookContent({
               onKeyDown={(e) => e.key === 'Enter' && onPriceClick?.(price)}
               title={`${level.price} × ${level.size} = $${total.toFixed(2)}`}
             >
-              <span>{formatCents(price)}</span>
-              <span className="text-right text-text-body">{Number(level.size).toLocaleString()}</span>
-              <span className="text-right text-text-muted">${total.toFixed(2)}</span>
+              <span className="text-left">{formatCents(price)}</span>
+              <span className="text-left text-text-body">{Number(level.size).toLocaleString()}</span>
+              <span className="text-left text-text-muted">${total.toFixed(2)}</span>
               <div className="h-1.5 rounded bg-status-error/30 min-w-0 overflow-hidden">
                 <div className="h-full rounded bg-status-error/50" style={{ width: `${Math.min(100, depthPct)}%` }} />
               </div>
@@ -120,7 +135,7 @@ function BookContent({
           )
         })}
       </div>
-      <div className="px-3 py-2 bg-bg-tertiary text-center border-y border-white/10 text-tiny">
+      <div ref={spreadRef} className="px-3 py-2 bg-bg-tertiary text-center border-y border-white/10 text-tiny">
         <span className="text-text-muted">Spread </span>
         <span className="text-text-primary">{(spreadAbs * 100).toFixed(1)}¢</span>
         <span className="text-text-muted"> ({spreadPct.toFixed(1)}%)</span>
@@ -152,9 +167,9 @@ function BookContent({
               onKeyDown={(e) => e.key === 'Enter' && onPriceClick?.(price)}
               title={`${level.price} × ${level.size} = $${total.toFixed(2)}`}
             >
-              <span>{formatCents(price)}</span>
-              <span className="text-right text-text-body">{Number(level.size).toLocaleString()}</span>
-              <span className="text-right text-text-muted">${total.toFixed(2)}</span>
+              <span className="text-left">{formatCents(price)}</span>
+              <span className="text-left text-text-body">{Number(level.size).toLocaleString()}</span>
+              <span className="text-left text-text-muted">${total.toFixed(2)}</span>
               <div className="h-1.5 rounded bg-status-success/30 min-w-0 overflow-hidden">
                 <div className="h-full rounded bg-status-success/50" style={{ width: `${Math.min(100, depthPct)}%` }} />
               </div>
@@ -179,14 +194,14 @@ export function OrderbookPanel({ yesTokenId, noTokenId, activeTab: activeTabProp
 
   if (!hasYes && !hasNo) {
     return (
-      <div className="rounded-panel bg-bg-secondary/80 backdrop-blur-panel border border-white/10 p-4 h-[420px] flex items-center justify-center">
+      <div className="rounded-panel bg-bg-secondary/80 backdrop-blur-panel border border-white/10 p-4 h-[580px] flex items-center justify-center">
         <p className="text-small text-text-muted">Select an outcome to view order book</p>
       </div>
     )
   }
 
   return (
-    <div className="rounded-panel bg-bg-secondary/80 backdrop-blur-panel border border-white/10 overflow-hidden flex flex-col h-[420px]">
+    <div className="rounded-panel bg-bg-secondary/80 backdrop-blur-panel border border-white/10 overflow-hidden flex flex-col h-[580px]">
       <div className="flex items-center justify-between border-b border-white/10">
         <div className="flex">
           {hasYes && (

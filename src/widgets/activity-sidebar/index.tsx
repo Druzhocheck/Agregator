@@ -17,9 +17,9 @@ const PERIODS: { label: string; value: LeaderboardPeriod }[] = [
   { label: 'All time', value: 'ALL' },
 ]
 
-function truncate(s: string, len = 10) {
-  if (s.length <= len) return s
-  return `${s.slice(0, 6)}...${s.slice(-4)}`
+function truncateUsername(s: string, maxLen = 14) {
+  if (!s || s.length <= maxLen) return s
+  return `${s.slice(0, maxLen - 3)}...`
 }
 
 function formatTime(ts?: number) {
@@ -135,24 +135,32 @@ export function ActivitySidebar() {
           ) : leaderboard.length === 0 ? (
             <div className="p-4 text-small text-text-muted">No traders yet</div>
           ) : (
-            (leaderboard as LeaderboardEntry[]).slice(0, 10).map((row, i) => (
-              <div
-                key={row.proxyWallet ?? row.userName ?? i}
-                className="flex items-center gap-2 px-3 py-2 hover:bg-white/5 transition-colors"
-              >
-                <span className="w-6 text-tiny text-text-muted">
-                  {i < 3 ? ['🥇', '🥈', '🥉'][i] : (row.rank ?? i + 1)}
-                </span>
-                <span className="flex-1 font-mono text-tiny truncate">
-                  {row.userName ?? truncate(row.proxyWallet ?? '')}
-                </span>
-                {(row.pnl != null || row.vol != null || row.volume != null) && (
-                  <span className={cn('text-tiny', (row.pnl ?? 0) >= 0 ? 'text-status-success' : 'text-status-error')}>
-                    {(row.pnl ?? row.vol ?? row.volume ?? 0) >= 0 ? '+' : ''}${(row.pnl ?? row.vol ?? row.volume ?? 0).toLocaleString()}
+            (leaderboard as LeaderboardEntry[]).slice(0, 10).map((row, i) => {
+              const name = row.userName ?? row.proxyWallet ?? ''
+              const displayName = truncateUsername(name)
+              const pnlVal = row.pnl ?? row.vol ?? row.volume ?? 0
+              return (
+                <div
+                  key={row.proxyWallet ?? row.userName ?? i}
+                  className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 px-3 py-2 hover:bg-white/5 transition-colors text-left"
+                >
+                  <span className="text-tiny text-text-muted shrink-0 w-5">
+                    {i < 3 ? ['🥇', '🥈', '🥉'][i] : (row.rank ?? i + 1)}
                   </span>
-                )}
-              </div>
-            ))
+                  <span
+                    className="font-mono text-tiny overflow-hidden text-ellipsis whitespace-nowrap min-w-0"
+                    title={name}
+                  >
+                    {displayName}
+                  </span>
+                  {(row.pnl != null || row.vol != null || row.volume != null) && (
+                    <span className={cn('text-tiny shrink-0', pnlVal >= 0 ? 'text-status-success' : 'text-status-error')}>
+                      {pnlVal >= 0 ? '+' : ''}${pnlVal.toLocaleString()}
+                    </span>
+                  )}
+                </div>
+              )
+            })
           )}
         </div>
       </section>

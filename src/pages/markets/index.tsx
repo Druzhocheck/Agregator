@@ -9,10 +9,10 @@ import { cn } from '@/shared/lib/cn'
 
 const STORAGE_KEY = 'ave-markets-filters'
 const SORT_OPTIONS: { label: string; value: EventsOrder }[] = [
-  { label: 'Newest', value: 'newest' },
-  { label: 'Ending Soon', value: 'end_date_asc' },
-  { label: 'Most Popular', value: 'volume' },
+  { label: 'Total Volume', value: 'volume' },
   { label: 'Highest Liquidity', value: 'liquidity' },
+  { label: 'Ending Soon', value: 'end_date_asc' },
+  { label: 'Newest', value: 'newest' },
 ]
 const CATEGORIES = ['All', 'Politics', 'Crypto', 'Sports', 'Science', 'Entertainment', 'Business', 'Other'] as const
 const STATUS_OPTIONS = ['Active', 'Pending', 'Resolved', 'All'] as const
