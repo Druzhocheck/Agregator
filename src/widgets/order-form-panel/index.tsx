@@ -85,9 +85,24 @@ export function OrderFormPanel({
     enabled: !!tokenId,
   })
 
-  const bestAsk = book?.asks?.[0]?.price ? Number(book.asks[0].price) : 0.5
-  const bestBid = book?.bids?.[0]?.price ? Number(book.bids[0].price) : 0.5
-  const marketPrice = side === 'buy' ? bestAsk : bestBid
+  const lastTrade = book?.last_trade_price ? Number(book.last_trade_price) : undefined
+  const asks = book?.asks ?? []
+  const bids = book?.bids ?? []
+  const bestAsk =
+    asks.length > 0
+      ? Math.min(...asks.map((l) => Number(l.price)).filter((p) => Number.isFinite(p)))
+      : lastTrade
+  const bestBid =
+    bids.length > 0
+      ? Math.max(...bids.map((l) => Number(l.price)).filter((p) => Number.isFinite(p)))
+      : lastTrade
+  const marketPriceRaw = side === 'buy' ? bestAsk : bestBid
+  const marketPrice =
+    marketPriceRaw != null && Number.isFinite(marketPriceRaw) && marketPriceRaw > 0
+      ? marketPriceRaw
+      : lastTrade != null && lastTrade > 0
+        ? lastTrade
+        : 0.5
 
   const conditionIdsSet = new Set((_event?.markets?.map((m) => m.conditionId).filter(Boolean) ?? []) as string[])
   const tokenIdsSet = new Set([yesTokenId, noTokenId, _tokenId].filter(Boolean) as string[])
@@ -407,10 +422,10 @@ export function OrderFormPanel({
             <div className="flex gap-1.5 shrink-0">
               {(side === 'buy'
                 ? [
-                    { label: '$25', value: '25' },
-                    { label: '$50', value: '50' },
-                    { label: '$75', value: '75' },
-                    { label: 'MAX', value: '1000' },
+                    { label: '25%', value: String(proxyCash > 0 ? Math.floor(proxyCash * 0.25 * 100) / 100 : 0) },
+                    { label: '50%', value: String(proxyCash > 0 ? Math.floor(proxyCash * 0.5 * 100) / 100 : 0) },
+                    { label: '75%', value: String(proxyCash > 0 ? Math.floor(proxyCash * 0.75 * 100) / 100 : 0) },
+                    { label: 'MAX', value: String(proxyCash) },
                   ]
                 : [
                     { label: '25%', value: String(positionShares > 0 ? Math.floor(positionShares * 0.25 * 100) / 100 : 0) },
