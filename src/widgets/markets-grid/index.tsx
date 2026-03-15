@@ -64,7 +64,6 @@ function MarketCard({ event, featuredIds }: { event: PolymarketEvent; featuredId
   const vol = event.volumeNum ?? Number(event.volume ?? 0) ?? 0
   const endDate = event.endDate ?? first?.endDate
   const topTwo = getTopTwoOutcomes(event)
-  const isSingleBinary = markets.length === 1 && markets[0]?.clobTokenIds && String(markets[0].clobTokenIds).split(',').length >= 2
 
   const handleYes = (e: React.MouseEvent) => {
     e.preventDefault()
