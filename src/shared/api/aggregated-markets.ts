@@ -77,7 +77,7 @@ export async function fetchUnifiedEvents(params: UnifiedEventsParams = {}): Prom
         polyCount: polyEvents.length,
         predictCount: predictMarkets.length,
         unifiedCount: unified.length,
-        multiPlatformCount: unified.filter((u) => u.platforms.length > 1).length,
+        multiPlatformCount: unified.filter((u: UnifiedEvent) => u.platforms.length > 1).length,
       },
       { component: 'aggregated-markets', function: 'fetchUnifiedEvents' }
     )
@@ -88,14 +88,14 @@ export async function fetchUnifiedEvents(params: UnifiedEventsParams = {}): Prom
   if (debugMatch) {
     logger.info(
       'fetchUnifiedEvents: final sample',
-      { sample: unified.slice(0, 5).map((u) => ({ canonicalId: u.canonicalId, title: u.title, platforms: u.platforms })) },
+      { sample: unified.slice(0, 5).map((u: UnifiedEvent) => ({ canonicalId: u.canonicalId, title: u.title, platforms: u.platforms })) },
       { component: 'aggregated-markets', function: 'fetchUnifiedEvents' }
     )
     const predictMissingMeta = unified
       .filter((u) => u.platforms.length === 1 && u.platforms[0] === 'predict')
-      .filter((u) => !u.aggregated.endDate && !u.aggregated.volume)
+      .filter((u: UnifiedEvent) => !u.aggregated.endDate && !u.aggregated.volume)
       .slice(0, 8)
-      .map((u) => ({ canonicalId: u.canonicalId, title: u.title, instances: u.instances.length }))
+      .map((u: UnifiedEvent) => ({ canonicalId: u.canonicalId, title: u.title, instances: u.instances.length }))
     if (predictMissingMeta.length > 0) {
       logger.info(
         'fetchUnifiedEvents: predict cards without volume/endDate',

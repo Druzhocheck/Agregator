@@ -141,8 +141,8 @@ export function MarketDetailPage() {
   const isPredictGroupedEvent = predictMarkets.length > 1 && hasSinglePredictCategory
   const predictDescription =
     selectedPlatform === 'predict'
-      ? predictMarkets.find((m) => Boolean(m.description?.trim()))?.description?.trim() ||
-        (isPredictGroupedEvent ? '' : predictMarkets.find((m) => Boolean(m.question?.trim()))?.question?.trim()) ||
+      ? predictMarkets.find((m: PredictMarket) => Boolean(m.description?.trim()))?.description?.trim() ||
+        (isPredictGroupedEvent ? '' : predictMarkets.find((m: PredictMarket) => Boolean(m.question?.trim()))?.question?.trim()) ||
         ''
       : ''
 
@@ -201,7 +201,7 @@ export function MarketDetailPage() {
           <div className="rounded-panel bg-bg-secondary/80 backdrop-blur-panel border border-white/10 p-3">
             <p className="text-tiny text-text-muted mb-2">Platform for placing order</p>
             <div className="flex items-center gap-2">
-              {unified.platforms.map((platform) => (
+              {unified.platforms.map((platform: PlatformId) => (
                 <button
                   key={platform}
                   type="button"
