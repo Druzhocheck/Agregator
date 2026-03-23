@@ -94,7 +94,10 @@ export async function getBridgeQuote(params: {
   amount?: string
   amountWei?: string
   exactOutputUsdc?: string
+  exactOutputAmountWei?: string
   originCurrency: string
+  destinationChainId?: number
+  destinationCurrency?: string
 }): Promise<BridgeQuoteResponse> {
   const res = await fetch(`${ONBOARD_API}/bridge/quote`, {
     method: 'POST',

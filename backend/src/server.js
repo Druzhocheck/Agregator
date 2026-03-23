@@ -413,7 +413,17 @@ app.get('/onboard/bridge/currencies', async (req, res) => {
 })
 
 app.post('/onboard/bridge/quote', async (req, res) => {
-  const { user, recipient, amount, amountWei, exactOutputUsdc, originCurrency } = req.body || {}
+  const {
+    user,
+    recipient,
+    amount,
+    amountWei,
+    exactOutputUsdc,
+    exactOutputAmountWei,
+    originCurrency,
+    destinationChainId,
+    destinationCurrency,
+  } = req.body || {}
   const userAddr = String(user || '').toLowerCase()
   const recipientAddr = String(recipient || '').toLowerCase()
   if (!userAddr.startsWith('0x') || !recipientAddr.startsWith('0x')) {
@@ -421,13 +431,19 @@ app.post('/onboard/bridge/quote', async (req, res) => {
   }
 
   const originToken = String(originCurrency || USDC_AVALANCHE).toLowerCase()
+  const destinationChain = Number(destinationChainId || POLYGON_CHAIN_ID)
+  const destinationToken = String(destinationCurrency || USDC_POLYGON).toLowerCase()
   const isUsdc = originToken === USDC_AVALANCHE.toLowerCase()
   let rawAmount = ''
   let tradeType = 'EXACT_INPUT'
 
-  const exactOut = exactOutputUsdc != null ? String(exactOutputUsdc).trim() : ''
-  if (exactOut) {
-    const outNum = Number(exactOut)
+  const exactOutAmountWei = exactOutputAmountWei != null ? String(exactOutputAmountWei).trim() : ''
+  const exactOutUsdc = exactOutputUsdc != null ? String(exactOutputUsdc).trim() : ''
+  if (exactOutAmountWei) {
+    rawAmount = exactOutAmountWei
+    tradeType = 'EXACT_OUTPUT'
+  } else if (exactOutUsdc) {
+    const outNum = Number(exactOutUsdc)
     if (!Number.isFinite(outNum) || outNum <= 0) return res.status(400).json({ error: 'Invalid exactOutputUsdc' })
     rawAmount = String(Math.floor(outNum * 1e6))
     tradeType = 'EXACT_OUTPUT'
@@ -436,9 +452,15 @@ app.post('/onboard/bridge/quote', async (req, res) => {
   } else if (isUsdc && amount != null) {
     rawAmount = String(Math.floor(Number(amount) * 1e6))
   } else {
-    return res.status(400).json({ error: 'Provide amountWei, amount (USDC), or exactOutputUsdc' })
+    return res.status(400).json({ error: 'Provide amountWei, amount (USDC), exactOutputUsdc, or exactOutputAmountWei' })
   }
   if (!rawAmount || BigInt(rawAmount) <= 0n) return res.status(400).json({ error: 'Invalid amount' })
+  if (!Number.isFinite(destinationChain) || destinationChain <= 0) {
+    return res.status(400).json({ error: 'Invalid destinationChainId' })
+  }
+  if (!destinationToken.startsWith('0x')) {
+    return res.status(400).json({ error: 'Invalid destinationCurrency' })
+  }
 
   try {
     const quote = await relayFetch('/quote/v2', {
@@ -447,9 +469,9 @@ app.post('/onboard/bridge/quote', async (req, res) => {
         user: userAddr,
         recipient: recipientAddr,
         originChainId: AVALANCHE_CHAIN_ID,
-        destinationChainId: POLYGON_CHAIN_ID,
+        destinationChainId: destinationChain,
         originCurrency: originToken.startsWith('0x') ? originToken : USDC_AVALANCHE,
-        destinationCurrency: USDC_POLYGON,
+        destinationCurrency: destinationToken,
         amount: rawAmount,
         tradeType,
       }),
