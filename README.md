@@ -27,12 +27,21 @@ Aggregator for prediction market protocols (Polymarket, Opinion, Limitless and o
 - `entities/` — market/event types
 - `shared/` — api (Polymarket Gamma/CLOB/Data), config, lib (cn), WebSocket stub
 
-## Polymarket API
+## Platform APIs
 
 - **Gamma** (`gamma-api.polymarket.com`): events, markets, search, tags
 - **CLOB** (`clob.polymarket.com`): orderbook (`/book?token_id=...`), order submission (auth)
 - **Data** (`data-api.polymarket.com`): leaderboard, positions, trades
 - **WebSocket** (`ws-subscriptions-clob.polymarket.com/ws/market`): real-time book and trades
+
+### Predict (Mainnet, read-only in this release)
+
+- **REST** (`api.predict.fun`): markets, market by id, orderbook
+- **WS** (`ws.predict.fun/ws`): available for future streaming integration
+- Unified event merge uses:
+  - strict `conditionId` (`Polymarket`) <-> `polymarketConditionIds` (`Predict`),
+  - Predict `categorySlug` grouping for multi-outcome events,
+  - heuristic title/outcome overlap fallback.
 
 ## Scripts
 
@@ -41,4 +50,12 @@ npm install
 npm run dev    # http://localhost:5173
 npm run build
 npm run preview
+```
+
+Backend smoke scripts:
+
+```bash
+cd backend
+npm run smoke:predict
+npm run smoke:merge
 ```

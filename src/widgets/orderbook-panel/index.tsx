@@ -2,12 +2,17 @@ import { useEffect, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { RefreshCw } from 'lucide-react'
 import { fetchOrderBook } from '@/shared/api/polymarket'
+import { fetchPredictOrderbook } from '@/shared/api/predict'
 import { useMarketWs } from '@/shared/hooks/use-market-ws'
 import { cn } from '@/shared/lib/cn'
 
 interface OrderbookPanelProps {
+  platform?: 'polymarket' | 'predict'
+  predictMarketId?: number | null
   yesTokenId?: string | null
   noTokenId?: string | null
+  yesLabel?: string
+  noLabel?: string
   /** Controlled tab: sync with selected outcome (e.g. Yes = even index, No = odd). */
   activeTab?: 'yes' | 'no'
   onTabChange?: (tab: 'yes' | 'no') => void
@@ -16,9 +21,15 @@ interface OrderbookPanelProps {
 
 function BookContent({
   tokenId,
+  platform,
+  activeTab,
+  predictMarketId,
   onPriceClick,
 }: {
   tokenId: string
+  platform: 'polymarket' | 'predict'
+  activeTab: 'yes' | 'no'
+  predictMarketId?: number | null
   onPriceClick?: (price: number) => void
 }) {
   const scrollRef = useRef<HTMLDivElement | null>(null)
@@ -26,12 +37,31 @@ function BookContent({
   const centeredForTokenRef = useRef<string | null>(null)
   const formatCents = (price: number) => `${(price * 100).toFixed(1)}¢`
   const { data: restBook, isLoading, isError, refetch } = useQuery({
-    queryKey: ['orderbook', tokenId],
-    queryFn: () => fetchOrderBook(tokenId),
+    queryKey: ['orderbook', platform, tokenId, predictMarketId, activeTab],
+    queryFn: async () => {
+      if (platform === 'predict') {
+        if (!predictMarketId) return null
+        const book = await fetchPredictOrderbook(predictMarketId)
+        if (!book) return null
+        if (activeTab === 'yes') return book
+        // Convert yes-price book into no-price view for UI consistency.
+        const convert = (levels: { price: string; size: string }[]) =>
+          levels
+            .map((l) => ({ price: String(Math.max(0, Math.min(1, 1 - Number(l.price)))), size: l.size }))
+            .sort((a, b) => Number(a.price) - Number(b.price))
+        return {
+          ...book,
+          asks: convert(book.bids),
+          bids: convert(book.asks),
+          last_trade_price: book.last_trade_price ? String(1 - Number(book.last_trade_price)) : '',
+        }
+      }
+      return fetchOrderBook(tokenId)
+    },
     enabled: !!tokenId,
     refetchInterval: 30_000,
   })
-  const { book: wsBook } = useMarketWs(tokenId)
+  const { book: wsBook } = useMarketWs(platform === 'polymarket' ? tokenId : null)
 
   // Prefer REST for full depth; WebSocket often sends fewer levels. Use WS only for lastTradePrice.
   const restAsks = restBook?.asks ?? []
@@ -181,14 +211,29 @@ function BookContent({
   )
 }
 
-export function OrderbookPanel({ yesTokenId, noTokenId, activeTab: activeTabProp, onTabChange, onPriceClick }: OrderbookPanelProps) {
+export function OrderbookPanel({
+  platform = 'polymarket',
+  predictMarketId,
+  yesTokenId,
+  noTokenId,
+  yesLabel = 'Yes',
+  noLabel = 'No',
+  activeTab: activeTabProp,
+  onTabChange,
+  onPriceClick,
+}: OrderbookPanelProps) {
   const [internalTab, setInternalTab] = useState<'yes' | 'no'>('yes')
   const activeTab = activeTabProp ?? internalTab
   const setActiveTab = (tab: 'yes' | 'no') => {
     if (activeTabProp === undefined) setInternalTab(tab)
     onTabChange?.(tab)
   }
-  const tokenId = activeTab === 'yes' ? yesTokenId : noTokenId
+  const tokenId =
+    platform === 'predict'
+      ? String(predictMarketId ?? '')
+      : activeTab === 'yes'
+        ? yesTokenId
+        : noTokenId
   const hasYes = !!yesTokenId
   const hasNo = !!noTokenId
 
@@ -215,7 +260,7 @@ export function OrderbookPanel({ yesTokenId, noTokenId, activeTab: activeTabProp
                   : 'border-transparent text-text-muted hover:text-text-body'
               )}
             >
-              Trade Yes
+              Trade {yesLabel}
             </button>
           )}
           {hasNo && (
@@ -229,13 +274,19 @@ export function OrderbookPanel({ yesTokenId, noTokenId, activeTab: activeTabProp
                   : 'border-transparent text-text-muted hover:text-text-body'
               )}
             >
-              Trade No
+              Trade {noLabel}
             </button>
           )}
         </div>
       </div>
       {tokenId ? (
-        <BookContent tokenId={tokenId} onPriceClick={onPriceClick} />
+        <BookContent
+          tokenId={tokenId}
+          platform={platform}
+          activeTab={activeTab}
+          predictMarketId={predictMarketId}
+          onPriceClick={onPriceClick}
+        />
       ) : (
         <div className="flex-1 flex items-center justify-center py-8 text-text-muted text-small">No data</div>
       )}

@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import type { PolymarketEvent, PolymarketMarket } from '@/entities/market/types'
 import type { OutcomeToken } from '@/shared/lib/market-utils'
-import { getMarketOutcomeDisplayName, parseOutcomePrices } from '@/shared/lib/market-utils'
+import { getPolymarketMarketRowTitle, parseOutcomePrices } from '@/shared/lib/market-utils'
 import { fetchOrderBook } from '@/shared/api/polymarket'
 import { cn } from '@/shared/lib/cn'
 
@@ -63,6 +63,8 @@ function OutcomeRow({
   vol,
   yesPrice,
   noPrice,
+  yesLabel,
+  noLabel,
   isYesSelected,
   isNoSelected,
   onSelectYes,
@@ -73,6 +75,8 @@ function OutcomeRow({
   vol: number
   yesPrice: number
   noPrice: number
+  yesLabel: string
+  noLabel: string
   isYesSelected: boolean
   isNoSelected: boolean
   onSelectYes: () => void
@@ -113,7 +117,7 @@ function OutcomeRow({
               isYesSelected && 'ring-2 ring-white/60'
             )}
           >
-            Buy Yes {yesPrice <= 0 || yesPrice >= 1 ? '—' : `${(yesPrice * 100).toFixed(1)}¢`}
+            Buy {yesLabel} {yesPrice <= 0 || yesPrice >= 1 ? '—' : `${(yesPrice * 100).toFixed(1)}¢`}
           </button>
           <button
             type="button"
@@ -124,7 +128,7 @@ function OutcomeRow({
               isNoSelected && 'ring-2 ring-white/60'
             )}
           >
-            Buy No {noPrice <= 0 || noPrice >= 1 ? '—' : `${(noPrice * 100).toFixed(1)}¢`}
+            Buy {noLabel} {noPrice <= 0 || noPrice >= 1 ? '—' : `${(noPrice * 100).toFixed(1)}¢`}
           </button>
         </div>
       </div>
@@ -146,7 +150,7 @@ export function OutcomesPanel({ event, outcomeTokens, selectedIndex, onSelectOut
     const yesToken = outcomeTokens[i]
     const noToken = outcomeTokens[i + 1]
     if (!yesToken || !noToken) continue
-    rows.push({ market: yesToken.market, yesToken, noToken, yesIndex: i, noIndex: i + 1 })
+    rows.push({ market: yesToken.market as PolymarketMarket, yesToken, noToken, yesIndex: i, noIndex: i + 1 })
   }
 
   if (rows.length === 0) {
@@ -162,7 +166,7 @@ export function OutcomesPanel({ event, outcomeTokens, selectedIndex, onSelectOut
     <div className="rounded-panel bg-bg-secondary/80 backdrop-blur-panel border border-white/10 p-4">
       <h3 className="text-base font-bold text-text-primary mb-2">Outcome options</h3>
       <p className="text-tiny text-text-muted mb-3">
-        Select an outcome and click Buy Yes or Buy No, or use the form on the right.
+        Select a market row and choose either side, or use the form on the right.
       </p>
       <div className="flex flex-col gap-2">
         {[...rows]
@@ -208,7 +212,7 @@ function OutcomeRowWithPrices({
   selectedIndex: number
   onSelectOutcome: (index: number) => void
 }) {
-  const title = getMarketOutcomeDisplayName(market) || market.question || `Outcome ${yesIndex / 2 + 1}`
+  const title = getPolymarketMarketRowTitle(market) || market.question || `Outcome ${yesIndex / 2 + 1}`
   const { data: yesBook } = useQuery({
     queryKey: ['orderbook', yesToken.tokenId],
     queryFn: () => fetchOrderBook(yesToken.tokenId!),
@@ -230,6 +234,8 @@ function OutcomeRowWithPrices({
       vol={vol}
       yesPrice={yesPrice}
       noPrice={noPrice}
+      yesLabel={yesToken.outcome}
+      noLabel={noToken.outcome}
       isYesSelected={selectedIndex === yesIndex}
       isNoSelected={selectedIndex === noIndex}
       onSelectYes={() => onSelectOutcome(yesIndex)}

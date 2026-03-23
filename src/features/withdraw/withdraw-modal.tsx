@@ -1,14 +1,17 @@
 import { useState, useEffect } from 'react'
 import { X, Copy, Check, ExternalLink } from 'lucide-react'
-import { useAccount, useBalance } from 'wagmi'
+import { useAccount, useBalance, useWriteContract } from 'wagmi'
 import { useQueryClient } from '@tanstack/react-query'
+import { parseUnits } from 'viem'
 import { useEnsureNetwork } from '@/shared/hooks/use-ensure-network'
+import { usePredictAuth } from '@/shared/context/predict-auth-context'
 import { usePolymarketProxy } from '@/shared/hooks/use-polymarket-proxy'
 import { usePolymarketBalance } from '@/shared/hooks/use-polymarket-balance'
 import { polygon } from 'wagmi/chains'
 import { transferUsdcFromProxy } from '@/shared/api/safe-proxy'
 import { cn } from '@/shared/lib/cn'
 import { createWithdrawalAddresses, getBridgeStatus, type BridgeTransaction } from '@/shared/api/bridge'
+import { BNB_CHAIN_ID, USDT_BNB } from '@/shared/config/api'
 
 const MIN_WITHDRAW_USD = 1
 const POLYGON_CHAIN_ID = 137
@@ -63,14 +66,28 @@ const DESTINATION_CHAINS = [
   { chainId: '8453', name: 'Base' },
 ] as const
 
-const WITHDRAW_PLATFORMS = [{ id: 'polymarket', name: 'Polymarket' }] as const
+const WITHDRAW_PLATFORMS = [{ id: 'polymarket', name: 'Polymarket' }, { id: 'predict', name: 'Predict' }] as const
+const ERC20_TRANSFER_ABI = [
+  {
+    type: 'function',
+    name: 'transfer',
+    stateMutability: 'nonpayable',
+    inputs: [
+      { name: 'recipient', type: 'address' },
+      { name: 'amount', type: 'uint256' },
+    ],
+    outputs: [{ name: '', type: 'bool' }],
+  },
+] as const
 
 export function WithdrawModal({ platformName: _platformName, onClose }: WithdrawModalProps) {
   const { address, isConnected } = useAccount()
+  const { account: predictAccount } = usePredictAuth()
   const queryClient = useQueryClient()
   const { ensureNetwork } = useEnsureNetwork()
   const { proxy } = usePolymarketProxy(address ?? undefined)
   const { cash: proxyCash } = usePolymarketBalance(proxy)
+  const { writeContractAsync } = useWriteContract()
   const [platform, setPlatform] = useState<string>(WITHDRAW_PLATFORMS[0].id)
   const [amount, setAmount] = useState('')
   const [toChainId, setToChainId] = useState('1')
@@ -86,16 +103,27 @@ export function WithdrawModal({ platformName: _platformName, onClose }: Withdraw
   const [history, setHistory] = useState<WithdrawalHistoryItem[]>([])
 
   const amountNum = parseAmountInput(amount)
+  const isPredict = platform === 'predict'
   const recipient = useMyWallet ? (address ?? '') : recipientAddr
   const recipientValid = recipient.length === 42 && recipient.startsWith('0x')
+  const predictAddress = predictAccount?.address ?? address ?? undefined
 
   const { data: usdcBalance } = useBalance({
     address: address ?? undefined,
     token: USDC_POLYGON as `0x${string}`,
     chainId: polygon.id,
   })
+  const { data: predictUsdtBalance } = useBalance({
+    address: predictAddress as `0x${string}` | undefined,
+    token: USDT_BNB as `0x${string}`,
+    chainId: BNB_CHAIN_ID,
+  })
+  const predictUsdt = predictUsdtBalance ? Number(predictUsdtBalance.formatted) : 0
   const hasEnoughProxyBalance = amountNum <= proxyCash + EPS
-  const validForAmount = recipientValid && amountNum >= MIN_WITHDRAW_USD && hasEnoughProxyBalance && !!proxy
+  const hasEnoughPredictBalance = amountNum <= predictUsdt + EPS
+  const validForAmount = isPredict
+    ? recipientValid && amountNum >= MIN_WITHDRAW_USD && hasEnoughPredictBalance && !!predictAddress
+    : recipientValid && amountNum >= MIN_WITHDRAW_USD && hasEnoughProxyBalance && !!proxy
 
   useEffect(() => {
     try {
@@ -164,12 +192,32 @@ export function WithdrawModal({ platformName: _platformName, onClose }: Withdraw
   }
 
   const handleWithdrawNow = async () => {
-    if (!validForAmount || !proxy) return
+    if (!validForAmount) return
     setError(null)
     setWithdrawTx(null)
     setBridgeTx(null)
     setWithdrawing(true)
     try {
+      if (isPredict) {
+        setWithdrawStep('Switching to BNB Chain…')
+        const switched = await ensureNetwork(BNB_CHAIN_ID)
+        if (!switched) throw new Error('Could not switch to BNB Chain')
+        setWithdrawStep('Sending USDT transfer…')
+        const amountWei = parseUnits(amountNum.toFixed(6), 18)
+        const hash = await writeContractAsync({
+          address: USDT_BNB as `0x${string}`,
+          abi: ERC20_TRANSFER_ABI,
+          functionName: 'transfer',
+          args: [recipient as `0x${string}`, amountWei],
+          chainId: BNB_CHAIN_ID,
+        })
+        setWithdrawTx(hash)
+        queryClient.invalidateQueries({ queryKey: ['balances', 'predict-positions'] })
+        setWithdrawStep(null)
+        setTimeout(onClose, 3000)
+        return
+      }
+      if (!proxy) throw new Error('Missing Polymarket proxy')
       let targetAddress = withdrawAddress
       if (!targetAddress) {
         setWithdrawStep('Creating withdrawal address…')
@@ -244,11 +292,11 @@ export function WithdrawModal({ platformName: _platformName, onClose }: Withdraw
             ))}
           </select>
           <p className="text-tiny text-text-muted mt-1">
-            Withdraw sends from your Polymarket (proxy) balance to the bridge. Requires POL for gas.
+            {isPredict ? 'Withdraw sends USDT from your connected BNB wallet.' : 'Withdraw sends from your Polymarket (proxy) balance to the bridge. Requires POL for gas.'}
           </p>
-          <p className="text-tiny text-status-warning mt-1">
+          {!isPredict && <p className="text-tiny text-status-warning mt-1">
             If funds get stuck on the bridge (not arriving at recipient), try smaller amounts. The bridge swaps USDC.e via Uniswap — pool liquidity may be limited. Check status below.
-          </p>
+          </p>}
         </div>
 
         {!isConnected || !address ? (
@@ -311,8 +359,10 @@ export function WithdrawModal({ platformName: _platformName, onClose }: Withdraw
 
             <div className="mb-4">
               <label className="text-small text-text-body block mb-1">Amount (USDC.e) — min ${MIN_WITHDRAW_USD}</label>
-              <p className="text-tiny text-text-muted mb-1">Balance on {WITHDRAW_PLATFORMS[0].name}: {proxyCash.toFixed(2)} USDC</p>
-              {usdcBalance != null && (
+              <p className="text-tiny text-text-muted mb-1">
+                Balance on {platform === 'predict' ? 'Predict' : WITHDRAW_PLATFORMS[0].name}: {platform === 'predict' ? predictUsdt.toFixed(2) : proxyCash.toFixed(2)} {platform === 'predict' ? 'USDT' : 'USDC'}
+              </p>
+              {!isPredict && usdcBalance != null && (
                 <p className="text-tiny text-text-muted mb-1">Balance on Polygon (EOA): {usdcBalance.formatted} USDC.e</p>
               )}
               <input
@@ -326,16 +376,16 @@ export function WithdrawModal({ platformName: _platformName, onClose }: Withdraw
                   amountNum >= MIN_WITHDRAW_USD ? 'border-status-success/50' : 'border-white/10'
                 )}
               />
-              {amountNum > 0 && !hasEnoughProxyBalance && (
+              {amountNum > 0 && ((isPredict && !hasEnoughPredictBalance) || (!isPredict && !hasEnoughProxyBalance)) && (
                 <p className="text-tiny text-status-error mt-1">
-                  Not enough balance on {WITHDRAW_PLATFORMS[0].name}. Need {amountNum.toFixed(2)} USDC, available {proxyCash.toFixed(2)} USDC.
+                  Not enough balance on {platform === 'predict' ? 'Predict' : WITHDRAW_PLATFORMS[0].name}. Need {amountNum.toFixed(2)} {platform === 'predict' ? 'USDT' : 'USDC'}, available {(platform === 'predict' ? predictUsdt : proxyCash).toFixed(2)} {platform === 'predict' ? 'USDT' : 'USDC'}.
                 </p>
               )}
             </div>
 
             {error && <p className="text-small text-status-error mb-2">{error}</p>}
 
-            {withdrawAddress ? (
+            {!isPredict && withdrawAddress ? (
               <div className="rounded-panel bg-bg-tertiary/50 border border-white/10 p-3 mb-4">
                 <p className="text-small text-text-body mb-2">
                   Bridge address: {truncateAddr(withdrawAddress, 10, 8)}
@@ -360,11 +410,11 @@ export function WithdrawModal({ platformName: _platformName, onClose }: Withdraw
                   </div>
                 </div>
               </div>
-            ) : (
+            ) : !isPredict ? (
               <p className="text-tiny text-text-muted mb-3">
                 Bridge address will be created when you click withdraw.
               </p>
-            )}
+            ) : null}
 
             {withdrawStep && (
               <p className="text-tiny text-accent-blue mb-2">{withdrawStep}</p>
@@ -390,7 +440,7 @@ export function WithdrawModal({ platformName: _platformName, onClose }: Withdraw
                 </a>
               </p>
             )}
-            {bridgeTx && (
+            {!isPredict && bridgeTx && (
               <p className="text-tiny text-text-muted">
                 Bridge status: <span className="font-mono">{bridgeTx.status}</span>
                 {bridgeTx.txHash && (
@@ -401,7 +451,7 @@ export function WithdrawModal({ platformName: _platformName, onClose }: Withdraw
                 )}
               </p>
             )}
-            {history.length > 0 && (
+            {!isPredict && history.length > 0 && (
               <div className="mt-4 rounded-panel bg-bg-tertiary/40 border border-white/10 p-3">
                 <p className="text-small text-text-body mb-2">Recent withdrawals</p>
                 <div className="space-y-2">

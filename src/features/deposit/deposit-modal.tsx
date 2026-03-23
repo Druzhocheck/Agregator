@@ -1,9 +1,11 @@
 import { useState, useEffect } from 'react'
-import { X, ExternalLink } from 'lucide-react'
+import { X, ExternalLink, Copy, Check } from 'lucide-react'
 import { useAccount, useBalance, useChainId, usePublicClient, useSendTransaction, useSwitchChain } from 'wagmi'
 import { useQueryClient } from '@tanstack/react-query'
+import { usePredictAuth } from '@/shared/context/predict-auth-context'
 import { usePolymarketProxy } from '@/shared/hooks/use-polymarket-proxy'
 import { getBridgeCurrencies, getBridgeQuote, type BridgeCurrency, type BridgeQuoteStep } from '@/shared/api/onboard'
+import { BNB_CHAIN_ID, USDT_BNB } from '@/shared/config/api'
 
 interface DepositModalProps {
   onClose: () => void
@@ -13,10 +15,11 @@ const AVALANCHE_CHAIN_ID = 43114
 const MIN_DEPOSIT_USD = 1
 const QUOTE_EXPIRY_MS = 120_000
 
-const PLATFORMS = [{ id: 'polymarket', name: 'Polymarket' }] as const
+const PLATFORMS = [{ id: 'polymarket', name: 'Polymarket' }, { id: 'predict', name: 'Predict' }] as const
 
 export function DepositModal({ onClose }: DepositModalProps) {
   const { address, isConnected } = useAccount()
+  const { account: predictAccount } = usePredictAuth()
   const chainId = useChainId()
   const publicClient = usePublicClient()
   const { switchChainAsync } = useSwitchChain()
@@ -36,6 +39,7 @@ export function DepositModal({ onClose }: DepositModalProps) {
   const [depositStep, setDepositStep] = useState<string | null>(null)
   const [success, setSuccess] = useState(false)
   const [lastTxHash, setLastTxHash] = useState<string | null>(null)
+  const [copied, setCopied] = useState(false)
 
   useEffect(() => {
     if (!address || !isConnected || !proxy) {
@@ -71,8 +75,10 @@ export function DepositModal({ onClose }: DepositModalProps) {
   }, [address, isConnected, proxy, selectedToken])
 
   const isPolymarket = platform === 'polymarket'
+  const isPredict = platform === 'predict'
   const proxyResolved = isPolymarket && !proxyLoading
   const showProxyOnlyMessage = isPolymarket && proxyResolved && !proxy && !loading && !error
+  const predictDepositAddress = predictAccount?.address ?? address ?? ''
 
   const selectedAsset = currencies.find((c) => c.address === selectedToken) ?? currencies[0]
   const amountNum = Number(amount || 0)
@@ -94,6 +100,18 @@ export function DepositModal({ onClose }: DepositModalProps) {
     token: selectedAsset?.metadata?.isNative ? undefined : (selectedAsset?.address as `0x${string}` | undefined),
     chainId: AVALANCHE_CHAIN_ID,
   })
+  const { data: predictUsdtBalance } = useBalance({
+    address: predictDepositAddress ? (predictDepositAddress as `0x${string}`) : undefined,
+    token: USDT_BNB as `0x${string}`,
+    chainId: BNB_CHAIN_ID,
+  })
+
+  const copyAddress = async () => {
+    if (!predictDepositAddress) return
+    await navigator.clipboard.writeText(predictDepositAddress)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 1600)
+  }
 
   const handleGetQuote = async () => {
     if (!address || !proxy || !selectedAsset || !canGetQuote) return
@@ -230,6 +248,41 @@ export function DepositModal({ onClose }: DepositModalProps) {
           <p className="text-body text-text-muted">
             Link Polymarket in Profile → Connected Platforms to get your deposit (proxy) address.
           </p>
+        ) : isPredict ? (
+          <>
+            <p className="text-small text-text-body mb-3">
+              Predict trading in this app currently uses your BNB wallet / linked Predict account address. Fund it with <strong>USDT on BNB Chain</strong> and keep some <strong>BNB</strong> for gas.
+            </p>
+            <div className="rounded-panel bg-bg-tertiary border border-white/10 p-3 mb-2">
+              <code className="font-mono text-tiny break-all text-text-body">{predictDepositAddress || 'Connect wallet first'}</code>
+            </div>
+            {predictDepositAddress && (
+              <div className="flex items-center gap-2 mb-3">
+                <button type="button" onClick={copyAddress} className="p-2 rounded hover:bg-white/10 text-text-muted" title="Copy address">
+                  {copied ? <Check className="w-4 h-4 text-status-success" /> : <Copy className="w-4 h-4" />}
+                </button>
+                <a
+                  href={`https://bscscan.com/address/${predictDepositAddress}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-tiny text-accent-blue hover:underline inline-flex items-center gap-1"
+                >
+                  View on BscScan <ExternalLink className="w-3 h-3" />
+                </a>
+              </div>
+            )}
+            <p className="text-tiny text-text-muted mb-1">
+              Supported collateral for the current Predict flow: USDT on BNB Chain.
+            </p>
+            {predictUsdtBalance && (
+              <p className="text-tiny text-text-muted mb-2">
+                Current BNB-chain USDT balance: {predictUsdtBalance.formatted} {predictUsdtBalance.symbol}
+              </p>
+            )}
+            <p className="text-tiny text-status-warning">
+              Cross-chain bridge into Predict is not wired yet in-app; this deposit flow currently provides the exact address to fund for Predict trading.
+            </p>
+          </>
         ) : proxy ? (
           <>
             <p className="text-small text-text-body mb-3">

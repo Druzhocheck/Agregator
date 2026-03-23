@@ -31,6 +31,19 @@ export default defineConfig({
         changeOrigin: true,
         rewrite: (p) => p.replace(/^\/api\/bridge/, ''),
       },
+      '/api/predict': {
+        target: 'https://api.predict.fun',
+        changeOrigin: true,
+        headers: process.env.VITE_PREDICT_API_KEY
+          ? { 'x-api-key': process.env.VITE_PREDICT_API_KEY }
+          : undefined,
+        rewrite: (p) => p.replace(/^\/api\/predict/, ''),
+      },
+      '/api/proxy': {
+        target: 'http://localhost:3001',
+        changeOrigin: true,
+        rewrite: (p) => p.replace(/^\/api/, ''),
+      },
       '/api/onboard': {
         target: 'http://localhost:3001',
         changeOrigin: true,

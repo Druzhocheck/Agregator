@@ -5,7 +5,8 @@ import { promises as fs } from 'fs'
 import path from 'path'
 import { fileURLToPath } from 'url'
 import { buildHmacSignature } from '@polymarket/builder-signing-sdk'
-import { ethers } from 'ethers'
+import { AbiCoder, getCreate2Address, keccak256, verifyMessage, parseUnits } from 'ethers'
+import { ChainId as PredictChainId, OrderBuilder, Side as PredictSide } from '@predictdotfun/sdk'
 
 const app = express()
 app.use(cors())
@@ -16,6 +17,12 @@ const CLOB_HOST = (process.env.CLOB_HOST || 'https://clob.polymarket.com').repla
 const GAMMA_HOST = (process.env.GAMMA_HOST || 'https://gamma-api.polymarket.com').replace(/\/$/, '')
 const DATA_HOST = (process.env.DATA_HOST || 'https://data-api.polymarket.com').replace(/\/$/, '')
 const BRIDGE_HOST = (process.env.BRIDGE_HOST || 'https://bridge.polymarket.com').replace(/\/$/, '')
+const PREDICT_USE_TESTNET = ['1', 'true', 'yes'].includes(String(process.env.PREDICT_USE_TESTNET || '').toLowerCase())
+const PREDICT_HOST = (
+  process.env.PREDICT_HOST || (PREDICT_USE_TESTNET ? 'https://api-testnet.predict.fun' : 'https://api.predict.fun')
+).replace(/\/$/, '')
+const PREDICT_API_KEY = String(process.env.PREDICT_API_KEY || '')
+const SEND_PREDICT_API_KEY = !PREDICT_USE_TESTNET && Boolean(PREDICT_API_KEY)
 const RELAYER_URL = String(process.env.RELAYER_URL || '')
 const BUILDER_API_KEY = String(process.env.BUILDER_API_KEY || '')
 const BUILDER_SECRET = String(process.env.BUILDER_SECRET || '')
@@ -37,7 +44,14 @@ const POLYGON_CHAIN_ID = 137
 const USDC_AVALANCHE = '0xB97EF9Ef8734C71904D8002F8b6Bc66Dd9c48a6E'
 const USDC_POLYGON = '0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174'
 
-const { defaultAbiCoder, getCreate2Address, keccak256, verifyMessage } = ethers.utils
+const defaultAbiCoder = AbiCoder.defaultAbiCoder()
+const predictOrderBuilder = OrderBuilder.make(PredictChainId.BnbMainnet)
+
+function parseDecimalToWei(value, decimals = 18) {
+  const raw = String(value ?? '').trim()
+  if (!raw) throw new Error('Missing numeric value')
+  return parseUnits(raw, decimals)
+}
 
 function buildActionAuthMessage({ action, eoa, proxyAddress, timestamp }) {
   return [
@@ -215,6 +229,45 @@ async function proxyTo(baseUrl, req, res) {
 app.use('/proxy/gamma', (req, res) => proxyTo(GAMMA_HOST, req, res))
 app.use('/proxy/data', (req, res) => proxyTo(DATA_HOST, req, res))
 app.use('/proxy/bridge', (req, res) => proxyTo(BRIDGE_HOST, req, res))
+app.use('/proxy/predict', async (req, res) => {
+  const subpath = (req.path || req.url || '').replace(/^\/+/, '')
+  const qs = req.originalUrl?.includes('?') ? req.originalUrl.slice(req.originalUrl.indexOf('?')) : ''
+  const url = `${PREDICT_HOST}/${subpath}${qs}`
+  try {
+    const headers = { 'Content-Type': 'application/json' }
+    if (SEND_PREDICT_API_KEY) headers['x-api-key'] = PREDICT_API_KEY
+    const authHeader = req.headers.authorization
+    if (typeof authHeader === 'string' && authHeader.trim()) {
+      headers.Authorization = authHeader
+    }
+    const init = { method: req.method, headers }
+    const start = Date.now()
+    if (req.method !== 'GET' && req.method !== 'HEAD' && req.body && Object.keys(req.body || {}).length) {
+      init.body = JSON.stringify(req.body)
+    }
+    const r = await fetch(url, init)
+    const text = await r.text()
+    console.log('[ave-backend] predict-proxy', {
+      method: req.method,
+      path: req.originalUrl,
+      upstream: url,
+      status: r.status,
+      hasApiKey: SEND_PREDICT_API_KEY,
+      durationMs: Date.now() - start,
+      responsePreview: String(text || '').slice(0, 180),
+    })
+    res.status(r.status).set('Content-Type', r.headers.get('Content-Type') || 'application/json').send(text)
+  } catch (e) {
+    console.error('[ave-backend] predict-proxy error', {
+      method: req.method,
+      path: req.originalUrl,
+      upstream: url,
+      hasApiKey: SEND_PREDICT_API_KEY,
+      error: e instanceof Error ? e.message : String(e),
+    })
+    res.status(502).json({ error: e instanceof Error ? e.message : 'Predict proxy failed' })
+  }
+})
 
 app.get('/onboard/relayer-config', (_req, res) => {
   const canDeployProxy = !!(RELAYER_URL && BUILDER_API_KEY && BUILDER_SECRET && BUILDER_PASSPHRASE)
@@ -407,7 +460,115 @@ app.post('/onboard/bridge/quote', async (req, res) => {
   }
 })
 
+app.post('/onboard/predict/build-order', async (req, res) => {
+  const {
+    strategy,
+    side,
+    signer,
+    tokenId,
+    quantity,
+    amountUsd,
+    limitPrice,
+    slippageBps,
+    feeRateBps,
+    isNegRisk,
+    isYieldBearing,
+    marketId,
+    orderbook,
+  } = req.body || {}
+
+  if (!signer || !String(signer).startsWith('0x')) {
+    return res.status(400).json({ error: 'Missing signer address' })
+  }
+  if (!tokenId) {
+    return res.status(400).json({ error: 'Missing tokenId' })
+  }
+  if (strategy !== 'LIMIT' && strategy !== 'MARKET') {
+    return res.status(400).json({ error: 'Invalid strategy' })
+  }
+
+  try {
+    const builder = predictOrderBuilder
+    const orderSide = side === 'SELL' ? PredictSide.SELL : PredictSide.BUY
+    const feeRate = Number(feeRateBps ?? 0)
+    const slippage = slippageBps != null ? BigInt(Math.max(0, Number(slippageBps))) : undefined
+    let amounts
+
+    if (strategy === 'LIMIT') {
+      const pricePerShareWei = parseDecimalToWei(limitPrice, 18)
+      const quantityWei = parseDecimalToWei(quantity, 18)
+      amounts = builder.getLimitOrderAmounts({
+        side: orderSide,
+        pricePerShareWei,
+        quantityWei,
+      })
+    } else {
+      const book = {
+        marketId: Number(marketId ?? 0),
+        updateTimestampMs: Date.now(),
+        asks: Array.isArray(orderbook?.asks) ? orderbook.asks : [],
+        bids: Array.isArray(orderbook?.bids) ? orderbook.bids : [],
+      }
+      amounts =
+        orderSide === PredictSide.BUY
+          ? builder.getMarketOrderAmounts(
+              {
+                side: orderSide,
+                valueWei: parseDecimalToWei(amountUsd, 18),
+                slippageBps: slippage,
+              },
+              book
+            )
+          : builder.getMarketOrderAmounts(
+              {
+                side: orderSide,
+                quantityWei: parseDecimalToWei(quantity, 18),
+                slippageBps: slippage,
+              },
+              book
+            )
+    }
+
+    const order = builder.buildOrder(strategy, {
+      maker: signer,
+      signer,
+      side: orderSide,
+      tokenId: String(tokenId),
+      makerAmount: amounts.makerAmount,
+      takerAmount: amounts.takerAmount,
+      nonce: 0n,
+      feeRateBps: feeRate,
+    })
+    const typedData = builder.buildTypedData(order, {
+      isNegRisk: Boolean(isNegRisk),
+      isYieldBearing: Boolean(isYieldBearing),
+    })
+    const hash = builder.buildTypedDataHash(typedData)
+
+    return res.json({
+      success: true,
+      data: {
+        order: { ...order, hash },
+        typedData,
+        hash,
+        pricePerShare: String(amounts.pricePerShare),
+        makerAmount: String(amounts.makerAmount),
+        takerAmount: String(amounts.takerAmount),
+        lastPrice: String(amounts.lastPrice),
+        slippageBps: String(amounts.slippageBps),
+      },
+    })
+  } catch (e) {
+    return res.status(400).json({ error: e instanceof Error ? e.message : 'Failed to build Predict order' })
+  }
+})
+
 await loadProxyStore()
 app.listen(PORT, () => {
   console.log(`[ave-backend] listening on ${PORT}`)
+  console.log('[ave-backend] predict config', {
+    host: PREDICT_HOST,
+    useTestnet: PREDICT_USE_TESTNET,
+    hasApiKey: SEND_PREDICT_API_KEY,
+  })
 })

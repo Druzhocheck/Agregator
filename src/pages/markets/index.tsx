@@ -1,7 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { MarketsSidebar } from '@/widgets/markets-sidebar'
-import { FeaturedMarkets } from '@/widgets/featured-markets'
 import { MarketsGrid } from '@/widgets/markets-grid'
 import { ActivitySidebar } from '@/widgets/activity-sidebar'
 import type { EventsOrder } from '@/shared/api/polymarket'
@@ -209,7 +208,6 @@ export function MarketsPage() {
           )}
         </div>
 
-        {status !== 'Resolved' && <FeaturedMarkets />}
         <MarketsGrid
           categorySlug={categorySlug}
           liquidityMin={liquidityMin}

@@ -1,10 +1,11 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { createConfig, http, WagmiProvider } from 'wagmi'
 import { injected } from 'wagmi/connectors'
-import { avalanche, polygon, gnosis } from 'wagmi/chains'
+import { avalanche, polygon, gnosis, bsc } from 'wagmi/chains'
 import type { ReactNode } from 'react'
 import { BridgeModalsProvider, useBridgeModals } from '@/shared/context/bridge-modals'
 import { TradingProvider } from '@/shared/context/trading-context'
+import { PredictAuthProvider } from '@/shared/context/predict-auth-context'
 import { DepositModal } from '@/features/deposit/deposit-modal'
 import { WithdrawModal } from '@/features/withdraw/withdraw-modal'
 
@@ -15,12 +16,13 @@ const queryClient = new QueryClient({
 })
 
 const config = createConfig({
-  chains: [avalanche, polygon, gnosis],
+  chains: [avalanche, polygon, gnosis, bsc],
   connectors: [injected()],
   transports: {
     [avalanche.id]: http(),
     [polygon.id]: http(),
     [gnosis.id]: http(),
+    [bsc.id]: http(),
   },
 })
 
@@ -37,8 +39,10 @@ export function Providers({ children }: { children: ReactNode }) {
       <QueryClientProvider client={queryClient}>
         <BridgeModalsProvider>
           <TradingProvider>
-            {children}
-            <BridgeModals />
+            <PredictAuthProvider>
+              {children}
+              <BridgeModals />
+            </PredictAuthProvider>
           </TradingProvider>
         </BridgeModalsProvider>
       </QueryClientProvider>

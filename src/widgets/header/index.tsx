@@ -4,6 +4,7 @@ import { useState, useCallback } from 'react'
 import { useAccount } from 'wagmi'
 import { cn } from '@/shared/lib/cn'
 import { useSearchMarkets } from '@/features/search'
+import { getPlatformLabel } from '@/shared/lib/platform-utils'
 import { NetworkSelector } from './network-selector'
 import { BalanceDropdown } from './balance-dropdown'
 import { WalletButton } from './wallet-button'
@@ -72,44 +73,34 @@ export function Header() {
               ⌘K
             </kbd>
           </div>
-          {open && (query.length > 0 || (results.events?.length ?? 0) > 0 || (results.markets?.length ?? 0) > 0) && (
+          {open && (query.length > 0 || results.length > 0) && (
             <div className="absolute top-full left-0 right-0 mt-1 rounded-panel bg-bg-secondary/95 backdrop-blur-panel border border-white/10 shadow-xl max-h-80 overflow-y-auto scrollbar-hover">
               {isLoading && (
                 <div className="p-4 text-text-muted text-small">Loading...</div>
               )}
               {!isLoading && (
                 <>
-                  {(results.events?.length ?? 0) > 0 && (
+                  {results.length > 0 && (
                     <div className="p-2">
                       <div className="text-tiny text-text-muted uppercase px-2 py-1">Events</div>
-                      {results.events!.slice(0, 5).map((e) => (
+                      {results.slice(0, 7).map((e) => (
                         <Link
-                          key={e.id}
-                          to={`/market/${e.slug ?? e.id}`}
+                          key={e.canonicalId}
+                          to={`/market/${e.canonicalId}`}
                           className="block px-2 py-2 rounded hover:bg-white/5 text-body"
                           onClick={() => setOpen(false)}
                         >
-                          {e.title ?? e.ticker ?? e.id}
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="truncate">{e.title}</span>
+                            <span className="text-tiny text-text-muted">
+                              {e.platforms.map(getPlatformLabel).join(', ')}
+                            </span>
+                          </div>
                         </Link>
                       ))}
                     </div>
                   )}
-                  {(results.markets?.length ?? 0) > 0 && (
-                    <div className="p-2">
-                      <div className="text-tiny text-text-muted uppercase px-2 py-1">Markets</div>
-                      {results.markets!.slice(0, 5).map((m) => (
-                        <Link
-                          key={m.id}
-                          to={`/market/${m.slug ?? m.id}`}
-                          className="block px-2 py-2 rounded hover:bg-white/5 text-body"
-                          onClick={() => setOpen(false)}
-                        >
-                          {m.question ?? m.id}
-                        </Link>
-                      ))}
-                    </div>
-                  )}
-                  {(results.events?.length ?? 0) === 0 && (results.markets?.length ?? 0) === 0 && query.length > 0 && (
+                  {results.length === 0 && query.length > 0 && (
                     <div className="p-4 text-text-muted text-small">No results</div>
                   )}
                 </>

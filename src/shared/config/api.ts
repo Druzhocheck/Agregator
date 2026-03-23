@@ -9,18 +9,27 @@ export const CLOB_API = 'https://clob.polymarket.com'
 export const DATA_API = dev ? '/api/data' : proxyBaseClean ? `${proxyBaseClean}/proxy/data` : '/api/proxy/data'
 export const BRIDGE_API = dev ? '/api/bridge' : proxyBaseClean ? `${proxyBaseClean}/proxy/bridge` : '/api/proxy/bridge'
 export const WS_MARKET = 'wss://ws-subscriptions-clob.polymarket.com/ws/market'
+// Always use backend proxy to keep API key server-side.
+export const PREDICT_API = dev ? '/api/proxy/predict' : proxyBaseClean ? `${proxyBaseClean}/proxy/predict` : '/api/proxy/predict'
+export const PREDICT_WS = 'wss://ws.predict.fun/ws'
+export const PREDICT_API_KEY =
+  typeof import.meta !== 'undefined' ? ((import.meta.env as Record<string, string | undefined>).VITE_PREDICT_API_KEY ?? '') : ''
 
 export const POLYGON_CHAIN_ID = 137
 export const AVALANCHE_CHAIN_ID = 43114
+export const BNB_CHAIN_ID = 56
 
 /** Copy Trading Vault (Avalanche C-Chain) — deposit/withdraw USDC for copy-trading */
 export const COPY_TRADING_VAULT_ADDRESS = '0xC85f003E34Aa97d7e6e1646ab4FaE44857E8f065' as const
 /** USDC on Avalanche */
 export const USDC_AVALANCHE = '0xB97EF9Ef8734C71904D8002F8b6Bc66Dd9c48a6E' as const
+/** USDT on BNB Chain */
+export const USDT_BNB = '0x55d398326f99059fF775485246999027B3197955' as const
 
 export const SUPPORTED_NETWORKS = [
   { id: 'avalanche', name: 'Avalanche', chainId: 43114 },
   { id: 'polygon', name: 'Polygon', chainId: 137 },
+  { id: 'bnb', name: 'BNB Chain', chainId: 56 },
   { id: 'gnosis', name: 'Gnosis', chainId: 100 },
 ] as const
 

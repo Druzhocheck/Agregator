@@ -1,46 +1,121 @@
-import { useEffect, useState } from 'react'
-import { useParams } from 'react-router-dom'
+import { useEffect, useMemo, useState } from 'react'
+import { useLocation, useParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
+import type { PlatformId, PolymarketEvent, PredictMarket } from '@/entities/market/types'
 import { fetchEventBySlug } from '@/shared/api/polymarket'
-import { getEventOutcomeTokens } from '@/shared/lib/market-utils'
+import {
+  fetchAllPredictMarkets,
+  fetchPredictMarketById,
+  fetchPredictMarketsByCategorySlug,
+  fetchPredictOrderbook,
+} from '@/shared/api/predict'
+import { getUnifiedOutcomeTokens } from '@/shared/lib/market-utils'
+import { resolveUnifiedEvent } from '@/shared/lib/event-aggregation'
 import { logger } from '@/shared/lib/logger'
 import { OrderbookPanel } from '@/widgets/orderbook-panel'
 import { MarketInfoPanel } from '@/widgets/market-info-panel'
 import { MarketPositionsPanel } from '@/widgets/market-positions-panel'
 import { OrderFormPanel } from '@/widgets/order-form-panel'
 import { OutcomesPanel } from '@/widgets/outcomes-panel'
+import { PredictOutcomesPanel } from '@/widgets/predict-outcomes-panel'
+import { PredictOrderFormPanel } from '@/widgets/predict-order-form-panel'
+import { getPlatformLabel } from '@/shared/lib/platform-utils'
+import { cn } from '@/shared/lib/cn'
 
 export function MarketDetailPage() {
   const { marketSlug } = useParams<{ marketSlug: string }>()
+  const location = useLocation()
+  const navigationState = (location.state ?? {}) as {
+    preferredPlatform?: PlatformId
+    predictMarketId?: number | null
+    predictOutcome?: 'yes' | 'no'
+  }
+  const [selectedPlatform, setSelectedPlatform] = useState<PlatformId>('polymarket')
   const [selectedOutcomeIndex, setSelectedOutcomeIndex] = useState(0)
 
-  const { data: event, isLoading, error } = useQuery({
-    queryKey: ['event', marketSlug],
-    queryFn: () => fetchEventBySlug(marketSlug ?? ''),
+  const { data: unified, isLoading, error } = useQuery({
+    queryKey: ['unifiedEvent', marketSlug],
+    queryFn: () =>
+      resolveUnifiedEvent(marketSlug ?? '', {
+        fetchPolymarketEventBySlug: fetchEventBySlug,
+        fetchPredictMarketById,
+        fetchPredictMarkets: () => fetchAllPredictMarkets({ status: 'OPEN', pageSize: 200, maxPages: 10 }),
+        fetchPredictMarketsByCategorySlug: (categorySlug) =>
+          fetchPredictMarketsByCategorySlug(categorySlug, { status: 'OPEN' }),
+        fetchPredictOrderbook: fetchPredictOrderbook,
+      }),
     enabled: !!marketSlug,
   })
 
-  const outcomeTokens = event ? getEventOutcomeTokens(event) : []
+  useEffect(() => {
+    if (!unified) return
+    const preferredPlatform =
+      navigationState.preferredPlatform && unified.platforms.includes(navigationState.preferredPlatform)
+        ? navigationState.preferredPlatform
+        : unified.platforms.includes('polymarket')
+          ? 'polymarket'
+          : unified.platforms[0]
+    setSelectedPlatform(preferredPlatform)
+  }, [unified, navigationState.preferredPlatform])
+
+  const outcomeTokens = useMemo(
+    () => getUnifiedOutcomeTokens(unified ?? null, selectedPlatform),
+    [unified, selectedPlatform]
+  )
   useEffect(() => {
     if (!outcomeTokens.length) return
     if (selectedOutcomeIndex <= outcomeTokens.length - 1) return
-    logger.warn('MarketDetail: selectedOutcomeIndex out of bounds, reset to 0', {
-      selectedOutcomeIndex,
-      outcomeTokensLength: outcomeTokens.length,
-    }, { component: 'market-detail', function: 'selectionGuard' })
     setSelectedOutcomeIndex(0)
   }, [outcomeTokens.length, selectedOutcomeIndex])
 
   useEffect(() => {
-    logger.info('MarketDetail: outcome tokens mapped', {
-      count: outcomeTokens.length,
-      firstOutcomes: outcomeTokens.slice(0, 6).map((x) => ({ outcome: x.outcome, token: `${x.tokenId.slice(0, 10)}…` })),
-    }, { component: 'market-detail', function: 'mapping' })
-  }, [outcomeTokens])
-  const selectedTokenId = outcomeTokens[selectedOutcomeIndex]?.tokenId ?? outcomeTokens[0]?.tokenId ?? null
+    if (!unified || selectedPlatform !== 'predict' || !outcomeTokens.length) return
+    const requestedMarketId = Number(navigationState.predictMarketId ?? NaN)
+    if (!Number.isFinite(requestedMarketId)) return
+    const requestedOutcome = navigationState.predictOutcome === 'no' ? 'No' : 'Yes'
+    const nextIndex = outcomeTokens.findIndex((token) => {
+      const market = token.market as PredictMarket
+      return Number(market.id) === requestedMarketId && token.outcome === requestedOutcome
+    })
+    if (nextIndex >= 0) setSelectedOutcomeIndex(nextIndex)
+  }, [unified, selectedPlatform, outcomeTokens, navigationState.predictMarketId, navigationState.predictOutcome])
+
+  const selectedToken = outcomeTokens[selectedOutcomeIndex]
+  const selectedTokenId = selectedToken?.tokenId ?? outcomeTokens[0]?.tokenId ?? null
   const marketIndex = outcomeTokens.length >= 2 ? Math.min(Math.floor(selectedOutcomeIndex / 2), Math.floor((outcomeTokens.length - 1) / 2)) : 0
+  const yesOutcomeLabel = outcomeTokens[marketIndex * 2]?.outcome ?? 'Yes'
+  const noOutcomeLabel = outcomeTokens[marketIndex * 2 + 1]?.outcome ?? 'No'
   const yesTokenId = outcomeTokens[marketIndex * 2]?.tokenId ?? null
   const noTokenId = outcomeTokens[marketIndex * 2 + 1]?.tokenId ?? null
+  const selectedPredictMarketId =
+    selectedPlatform === 'predict'
+      ? Number((selectedToken?.market as PredictMarket | undefined)?.id ?? NaN)
+      : null
+  const selectedPredictMarket =
+    selectedPlatform === 'predict' ? ((selectedToken?.market as PredictMarket | undefined) ?? null) : null
+
+  useEffect(() => {
+    const predictInstances = unified?.instances.filter((i) => i.platform === 'predict') ?? []
+    const predictCategories = [...new Set(predictInstances.map((i) => (i.event as PredictMarket).categorySlug || ''))]
+    const predictMarketsCount = predictInstances.length
+    const outcomeTokenCount = outcomeTokens.length
+    logger.info(
+      'MarketDetail: unified loaded',
+      {
+        canonicalId: unified?.canonicalId,
+        platforms: unified?.platforms,
+        selectedPlatform,
+        outcomeCount: outcomeTokenCount,
+        outcomeTokenCount,
+        outcomeMarketPairs: Math.floor(outcomeTokenCount / 2),
+        outcomeCountNote: selectedPlatform === 'predict' ? 'predict outcomes are logged as tokens (Yes+No per market)' : undefined,
+        predictMarketsCount,
+        predictCategoryCount: predictCategories.length,
+        predictCategoriesSample: predictCategories.slice(0, 12),
+      },
+      { component: 'market-detail', function: 'load' }
+    )
+  }, [unified, selectedPlatform, outcomeTokens.length])
 
   if (isLoading) {
     return (
@@ -51,8 +126,7 @@ export function MarketDetailPage() {
       </div>
     )
   }
-
-  if (error || !event) {
+  if (error || !unified) {
     return (
       <div className="max-w-[1920px] mx-auto px-6 py-12 text-center">
         <p className="text-status-error">Market not found</p>
@@ -60,79 +134,117 @@ export function MarketDetailPage() {
     )
   }
 
+  const polyEvent = unified.instances.find((i) => i.platform === 'polymarket')?.event as PolymarketEvent | undefined
+  const predictMarkets = unified.instances.filter((i) => i.platform === 'predict').map((i) => i.event as PredictMarket)
+  const hasSinglePredictCategory =
+    new Set(predictMarkets.map((m) => String(m.categorySlug || '').trim().toLowerCase()).filter(Boolean)).size === 1
+  const isPredictGroupedEvent = predictMarkets.length > 1 && hasSinglePredictCategory
+  const predictDescription =
+    selectedPlatform === 'predict'
+      ? predictMarkets.find((m) => Boolean(m.description?.trim()))?.description?.trim() ||
+        (isPredictGroupedEvent ? '' : predictMarkets.find((m) => Boolean(m.question?.trim()))?.question?.trim()) ||
+        ''
+      : ''
+
   const handleOrderbookTabChange = (tab: 'yes' | 'no') => {
     const index = marketIndex * 2 + (tab === 'no' ? 1 : 0)
     setSelectedOutcomeIndex(index)
-    logger.info('MarketDetail: orderbook tab changed', { tab, selectedOutcomeIndex: index, tokenId: outcomeTokens[index]?.tokenId?.slice(0, 24) + '…' }, { component: 'market-detail', function: 'handleOrderbookTabChange' })
-  }
-
-  const handleSelectOutcome = (index: number) => {
-    setSelectedOutcomeIndex(index)
-    const tokenId = outcomeTokens[index]?.tokenId ?? null
-    logger.info('MarketDetail: outcome selected', { selectedOutcomeIndex: index, tokenId: tokenId?.slice(0, 24) + '…', outcome: outcomeTokens[index]?.outcome }, { component: 'market-detail', function: 'handleSelectOutcome' })
   }
 
   return (
     <div className="max-w-[1920px] mx-auto px-6 py-6 flex gap-4">
       <div className="w-[24%] min-w-[220px] max-w-[280px] shrink-0">
         <OrderbookPanel
+          platform={selectedPlatform === 'predict' ? 'predict' : 'polymarket'}
+          predictMarketId={selectedPredictMarketId}
           yesTokenId={yesTokenId}
           noTokenId={noTokenId}
+          yesLabel={yesOutcomeLabel}
+          noLabel={noOutcomeLabel}
           activeTab={selectedOutcomeIndex % 2 === 0 ? 'yes' : 'no'}
           onTabChange={handleOrderbookTabChange}
         />
       </div>
       <div className="flex-1 min-w-0 flex flex-col gap-4">
         <div className="rounded-panel bg-bg-secondary/80 backdrop-blur-panel border border-white/10 p-4">
-          <h1 className="text-h3 font-bold text-text-primary leading-tight">
-            {event.title ?? event.ticker ?? event.id}
-          </h1>
-          {event.description && (
-            <p className="mt-2 text-body text-text-muted leading-relaxed">{event.description}</p>
+          <h1 className="text-h3 font-bold text-text-primary leading-tight">{unified.title}</h1>
+          {predictDescription && (
+            <p className="mt-2 text-small text-text-muted leading-relaxed">
+              {predictDescription}
+            </p>
           )}
           <div className="flex flex-wrap gap-4 mt-3 text-tiny text-text-muted">
-            {event.markets?.[0]?.resolutionSource && (
-              <span>Source: {event.markets[0].resolutionSource}</span>
-            )}
-            {(event.endDate ?? event.markets?.[0]?.endDate) && (
-              <span>Resolves: {new Date(event.endDate ?? event.markets?.[0]?.endDate!).toLocaleString()}</span>
-            )}
-            {(event.volumeNum ?? Number(event.volume ?? 0)) > 0 && (
-              <span>Volume: ${((event.volumeNum ?? Number(event.volume ?? 0)) / 1e6).toFixed(2)}M</span>
-            )}
+            {unified.aggregated.endDate && <span>Resolves: {new Date(unified.aggregated.endDate).toLocaleString()}</span>}
+            {unified.aggregated.volume > 0 && <span>Volume: ${(unified.aggregated.volume / 1e6).toFixed(2)}M</span>}
           </div>
         </div>
-        {outcomeTokens.length > 0 && (
+        {selectedPlatform === 'polymarket' && polyEvent && (
           <OutcomesPanel
-            event={event}
+            event={polyEvent}
             outcomeTokens={outcomeTokens}
             selectedIndex={selectedOutcomeIndex}
-            onSelectOutcome={handleSelectOutcome}
+            onSelectOutcome={setSelectedOutcomeIndex}
           />
         )}
-        {event.markets?.[0]?.resolutionSource && (
-          <section className="rounded-panel bg-bg-secondary/80 backdrop-blur-panel border border-white/10 p-4">
-            <h3 className="text-base font-bold text-text-primary mb-2">Rules</h3>
-            <p className="text-small text-text-muted leading-relaxed">
-              Resolution source: {event.markets[0].resolutionSource}
-            </p>
-          </section>
+        {selectedPlatform === 'predict' && (
+          <PredictOutcomesPanel
+            markets={predictMarkets}
+            selectedIndex={selectedOutcomeIndex}
+            onSelectOutcome={setSelectedOutcomeIndex}
+          />
         )}
-        <MarketPositionsPanel event={event} />
-        <MarketInfoPanel event={event} tokenId={selectedTokenId} />
+        {selectedPlatform === 'polymarket' && polyEvent && <MarketPositionsPanel event={polyEvent} />}
+        {selectedPlatform === 'polymarket' && polyEvent && <MarketInfoPanel event={polyEvent} tokenId={selectedTokenId} />}
       </div>
-      <div className="w-[24%] min-w-[240px] max-w-[300px] shrink-0">
-        <OrderFormPanel
-          event={event}
-          yesTokenId={yesTokenId}
-          noTokenId={noTokenId}
-          selectedOutcomeIndex={selectedOutcomeIndex}
-          marketIndex={marketIndex}
-          onSelectOutcome={setSelectedOutcomeIndex}
-          tokenId={selectedTokenId}
-          outcomeLabel={outcomeTokens[selectedOutcomeIndex]?.outcome ?? 'YES'}
-        />
+      <div className="w-[24%] min-w-[240px] max-w-[300px] shrink-0 flex flex-col gap-3">
+        {unified.platforms.length > 1 && (
+          <div className="rounded-panel bg-bg-secondary/80 backdrop-blur-panel border border-white/10 p-3">
+            <p className="text-tiny text-text-muted mb-2">Platform for placing order</p>
+            <div className="flex items-center gap-2">
+              {unified.platforms.map((platform) => (
+                <button
+                  key={platform}
+                  type="button"
+                  onClick={() => {
+                    setSelectedPlatform(platform)
+                    setSelectedOutcomeIndex(0)
+                  }}
+                  className={cn(
+                    'px-3 py-1.5 rounded-lg text-small border',
+                    selectedPlatform === platform
+                      ? 'border-accent-violet/60 bg-accent-violet/20 text-text-primary'
+                      : 'border-white/10 bg-bg-tertiary/50 text-text-muted'
+                  )}
+                >
+                  {getPlatformLabel(platform)}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+        {selectedPlatform === 'polymarket' && polyEvent ? (
+          <OrderFormPanel
+            event={polyEvent}
+            yesTokenId={yesTokenId}
+            noTokenId={noTokenId}
+            yesLabel={yesOutcomeLabel}
+            noLabel={noOutcomeLabel}
+            selectedOutcomeIndex={selectedOutcomeIndex}
+            marketIndex={marketIndex}
+            onSelectOutcome={setSelectedOutcomeIndex}
+            tokenId={selectedTokenId}
+            outcomeLabel={outcomeTokens[selectedOutcomeIndex]?.outcome ?? 'YES'}
+          />
+        ) : (
+          <PredictOrderFormPanel
+            market={selectedPredictMarket}
+            outcomeLabel={outcomeTokens[selectedOutcomeIndex]?.outcome ?? 'YES'}
+            yesLabel={yesOutcomeLabel}
+            noLabel={noOutcomeLabel}
+          />
+        )}
       </div>
     </div>
   )
 }
+

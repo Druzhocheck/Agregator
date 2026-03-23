@@ -4,14 +4,16 @@ import { useAccount, useSwitchChain, useChainId, useSignTypedData } from 'wagmi'
 import { logger } from '@/shared/lib/logger'
 import { Check, ExternalLink, Link2, Loader2 } from 'lucide-react'
 import { useTrading } from '@/shared/context/trading-context'
+import { usePredictAuth } from '@/shared/context/predict-auth-context'
 import { useDeployProxy } from '@/shared/hooks/use-deploy-proxy'
 import { usePolymarketProxy } from '@/shared/hooks/use-polymarket-proxy'
 import { cn } from '@/shared/lib/cn'
-import { POLYGON_CHAIN_ID } from '@/shared/config/api'
+import { BNB_CHAIN_ID, POLYGON_CHAIN_ID } from '@/shared/config/api'
 import { createOnboard, getOnboardRequirements, getOnboardSignPayload } from '@/shared/api/onboard'
 
 const PLATFORMS = [
   { id: 'polymarket', name: 'Polymarket', desc: 'Prediction markets on Polygon' },
+  { id: 'predict', name: 'Predict', desc: 'Prediction markets on BNB Chain' },
   { id: 'azuro', name: 'Azuro', desc: 'Sports & prediction markets on Gnosis' },
   { id: 'native', name: 'Native Wallet', desc: 'Your EOA on selected chain' },
 ] as const
@@ -30,6 +32,14 @@ export function ConnectedPlatforms() {
   const { proxy, isLoading: proxyLoading, refetch: refetchProxy } = usePolymarketProxy(address ?? undefined)
   const { canDeploy, deploying, deployError, deploy } = useDeployProxy(address ?? undefined)
   const { creds, isDeriving, deriveError, deriveApiKey, clearCreds } = useTrading()
+  const {
+    account: predictAccount,
+    isConnecting: predictConnecting,
+    error: predictError,
+    isConnected: predictConnected,
+    connect: connectPredict,
+    disconnect: disconnectPredict,
+  } = usePredictAuth()
   const [isSwitching, setIsSwitching] = useState(false)
   const [linkStep, setLinkStep] = useState<'idle' | 'switching' | 'deploying' | 'registering' | 'deriving' | 'done'>('idle')
   const [linkError, setLinkError] = useState<string | null>(null)
@@ -46,6 +56,22 @@ export function ConnectedPlatforms() {
       queryClient.invalidateQueries({ queryKey: ['positions', 'balance'] }),
       queryClient.invalidateQueries({ queryKey: ['open-orders'] }),
     ])
+  }
+
+  const handleLinkPredict = async () => {
+    if (!isConnected || !address) return
+    setLinkError(null)
+    try {
+      if (chainId !== BNB_CHAIN_ID && switchChainAsync) {
+        await switchChainAsync({ chainId: BNB_CHAIN_ID })
+        await new Promise((r) => setTimeout(r, 600))
+      }
+      await connectPredict(address)
+      await queryClient.invalidateQueries({ queryKey: ['positions', 'predict'] })
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'Failed to connect Predict'
+      setLinkError(msg)
+    }
   }
 
   const handleLinkPolymarket = async () => {
@@ -178,9 +204,10 @@ export function ConnectedPlatforms() {
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
         {PLATFORMS.map((p) => {
           const isPolymarket = p.id === 'polymarket'
+          const isPredict = p.id === 'predict'
           const isNative = p.id === 'native'
           const hasProxy = !!proxy
-          const connected = isNative ? isConnected : isPolymarket ? polymarketConnected : false
+          const connected = isNative ? isConnected : isPolymarket ? polymarketConnected : isPredict ? predictConnected : false
           const showLink = isPolymarket && isConnected && hasProxy && !polymarketLinked
           const showUnlink = isPolymarket && polymarketConnected
 
@@ -201,11 +228,16 @@ export function ConnectedPlatforms() {
                   )}
                 >
                   {connected ? <Check className="w-4 h-4" /> : null}
-                  {isPolymarket && proxyLoading ? 'Checking…' : connected ? 'Connected' : 'Not Connected'}
+                  {isPolymarket && proxyLoading ? 'Checking…' : isPredict && predictConnecting ? 'Connecting…' : connected ? 'Connected' : 'Not Connected'}
                 </span>
               </div>
               {isNative && address && (
                 <p className="mt-2 font-mono text-tiny text-text-muted break-all">{address}</p>
+              )}
+              {isPredict && predictAccount?.address && (
+                <p className="mt-2 font-mono text-tiny text-text-muted break-all" title={predictAccount.address}>
+                  Predict account: {truncateAddr(predictAccount.address)}
+                </p>
               )}
               {isPolymarket && proxy && (
                 <p className="mt-2 font-mono text-tiny text-text-muted" title={proxy}>
@@ -218,7 +250,49 @@ export function ConnectedPlatforms() {
               {isPolymarket && isConnected && !hasProxy && !proxyLoading && (
                 <p className="mt-2 text-tiny text-text-muted">Proxy wallet not found. It usually appears after first login to polymarket.com with this wallet.</p>
               )}
+              {isPredict && !isConnected && (
+                <p className="mt-2 text-tiny text-text-muted">Connect wallet in header to link Predict.</p>
+              )}
               <div className="mt-3 flex flex-wrap gap-2 items-center">
+                {isPredict && isConnected && !predictConnected && (
+                  <button
+                    type="button"
+                    disabled={predictConnecting}
+                    onClick={handleLinkPredict}
+                    className="inline-flex items-center gap-2 px-4 py-2 rounded-panel bg-accent-violet text-white text-small font-medium hover:bg-accent-violet/90 disabled:opacity-50"
+                  >
+                    {predictConnecting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Link2 className="w-4 h-4" />}
+                    Link Predict
+                  </button>
+                )}
+                {isPredict && chainId !== BNB_CHAIN_ID && isConnected && !predictConnected && (
+                  <span className="text-tiny text-status-warning">Network will switch to BNB Chain when you click Link</span>
+                )}
+                {isPredict && predictError && (
+                  <span className="text-tiny text-status-error block w-full">{predictError}</span>
+                )}
+                {isPredict && predictConnected && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      disconnectPredict()
+                      queryClient.invalidateQueries({ queryKey: ['positions', 'predict'] })
+                    }}
+                    className="px-3 py-1.5 rounded-panel border border-status-error/50 text-status-error text-small hover:bg-status-error/10"
+                  >
+                    Unlink
+                  </button>
+                )}
+                {isPredict && predictAccount?.address && (
+                  <a
+                    href={`https://bscscan.com/address/${predictAccount.address}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-small text-accent-blue hover:underline inline-flex items-center gap-1"
+                  >
+                    View on Explorer <ExternalLink className="w-3 h-3" />
+                  </a>
+                )}
                 {isPolymarket && isConnected && !hasProxy && !proxyLoading && (
                   <button
                     type="button"

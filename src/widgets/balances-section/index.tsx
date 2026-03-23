@@ -1,8 +1,13 @@
 import { ArrowLeftRight, ArrowDownToLine } from 'lucide-react'
 import { useAccount } from 'wagmi'
+import { useQuery } from '@tanstack/react-query'
+import { useBalance } from 'wagmi'
 import { useBridgeModals } from '@/shared/context/bridge-modals'
+import { fetchPredictPositions, fetchPredictPositionsByAddress } from '@/shared/api/predict'
+import { usePredictAuth } from '@/shared/context/predict-auth-context'
 import { usePolymarketProxy } from '@/shared/hooks/use-polymarket-proxy'
 import { usePolymarketBalance } from '@/shared/hooks/use-polymarket-balance'
+import { BNB_CHAIN_ID, USDT_BNB } from '@/shared/config/api'
 
 function formatUsd(n: number) {
   if (!Number.isFinite(n)) return '0.00'
@@ -11,9 +16,28 @@ function formatUsd(n: number) {
 
 export function BalancesSection() {
   const { address, isConnected } = useAccount()
+  const { jwt: predictJwt, account: predictAccount } = usePredictAuth()
   const { openDeposit, openWithdraw } = useBridgeModals()
   const { proxy } = usePolymarketProxy(address ?? undefined)
   const { cash, positionsValue, total, isLoading } = usePolymarketBalance(proxy)
+  const predictAddress = predictAccount?.address ?? address ?? undefined
+
+  const { data: predictUsdtBalance } = useBalance({
+    address: predictAddress as `0x${string}` | undefined,
+    token: USDT_BNB as `0x${string}`,
+    chainId: BNB_CHAIN_ID,
+  })
+
+  const { data: predictPositions = [] } = useQuery({
+    queryKey: ['balances', 'predict-positions', predictAddress, predictJwt],
+    queryFn: async () => {
+      if (predictJwt) return fetchPredictPositions(predictJwt, { first: 100 })
+      if (predictAddress) return fetchPredictPositionsByAddress(predictAddress, { first: 100 })
+      return []
+    },
+    enabled: !!predictAddress,
+    staleTime: 30_000,
+  })
 
   const polymarketRow = isConnected && address
     ? {
@@ -25,7 +49,22 @@ export function BalancesSection() {
       }
     : null
 
-  const totalDisplay = polymarketRow && !isLoading ? formatUsd(total) : (isLoading ? '…' : '0.00')
+  const predictCash = predictUsdtBalance ? Number(predictUsdtBalance.formatted) : 0
+  const predictPositionsValue = predictPositions.reduce((sum, position) => sum + Number(position.valueUsd ?? 0), 0)
+  const predictTotal = predictCash + predictPositionsValue
+  const predictRow = isConnected && predictAddress
+    ? {
+        platform: 'Predict',
+        network: 'BNB Chain',
+        cash: formatUsd(predictCash),
+        positions: formatUsd(predictPositionsValue),
+        total: formatUsd(predictTotal),
+      }
+    : null
+
+  const portfolioTotal = (polymarketRow && !isLoading ? total : 0) + (predictRow ? predictTotal : 0)
+  const totalDisplay =
+    isLoading ? '…' : formatUsd(portfolioTotal)
 
   return (
     <>
@@ -54,7 +93,9 @@ export function BalancesSection() {
                   No Polymarket proxy for this wallet. Link in Connected Platforms to see balance.
                 </td>
               </tr>
-            ) : polymarketRow ? (
+            ) : (
+              <>
+              {polymarketRow ? (
               <tr className="border-b border-white/5 hover:bg-white/5">
                 <td className="p-3">
                   <span className="text-text-primary">{polymarketRow.platform}</span>
@@ -84,7 +125,40 @@ export function BalancesSection() {
                   </div>
                 </td>
               </tr>
-            ) : null}
+              ) : null}
+              {predictRow ? (
+              <tr className="border-b border-white/5 hover:bg-white/5">
+                <td className="p-3">
+                  <span className="text-text-primary">{predictRow.platform}</span>
+                  <span className="text-tiny text-text-muted block">{predictRow.network}</span>
+                </td>
+                <td className="p-3 text-right font-mono">{predictRow.cash}</td>
+                <td className="p-3 text-right font-mono">{predictRow.positions}</td>
+                <td className="p-3 text-right font-mono text-text-primary">{predictRow.total}</td>
+                <td className="p-2">
+                  <div className="flex gap-1">
+                    <button
+                      type="button"
+                      onClick={openDeposit}
+                      className="p-2 rounded hover:bg-white/10 text-text-muted hover:text-text-body"
+                      title="Deposit to Predict"
+                    >
+                      <ArrowDownToLine className="w-4 h-4" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={openWithdraw}
+                      className="p-2 rounded hover:bg-white/10 text-text-muted hover:text-text-body"
+                      title="Withdraw from Predict"
+                    >
+                      <ArrowLeftRight className="w-4 h-4" />
+                    </button>
+                  </div>
+                </td>
+              </tr>
+              ) : null}
+              </>
+            )}
           </tbody>
           <tfoot>
             <tr className="bg-accent-violet/10 font-semibold">

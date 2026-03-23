@@ -33,6 +33,8 @@ interface OrderFormPanelProps {
   tokenId?: string | null
   yesTokenId?: string | null
   noTokenId?: string | null
+  yesLabel?: string
+  noLabel?: string
   /** When set, form outcome (Yes/No) is controlled by parent (sync with selected outcome). */
   selectedOutcomeIndex?: number
   marketIndex?: number
@@ -45,6 +47,8 @@ export function OrderFormPanel({
   tokenId: _tokenId,
   yesTokenId,
   noTokenId,
+  yesLabel = 'Yes',
+  noLabel = 'No',
   selectedOutcomeIndex,
   marketIndex = 0,
   onSelectOutcome,
@@ -241,7 +245,7 @@ export function OrderFormPanel({
     }
   }
 
-  const outcomeLabelDisplay = outcomeYes ? 'Yes' : 'No'
+  const outcomeLabelDisplay = outcomeYes ? yesLabel : noLabel
 
   return (
     <div className="rounded-panel bg-bg-secondary/80 backdrop-blur-panel border border-white/10 p-4">
@@ -337,7 +341,7 @@ export function OrderFormPanel({
               outcomeYes ? 'bg-status-success/20 text-status-success border border-status-success/40' : 'bg-bg-tertiary text-text-muted border border-transparent hover:bg-white/5'
             )}
           >
-            Yes
+            {yesLabel}
           </button>
           <button
             type="button"
@@ -350,7 +354,7 @@ export function OrderFormPanel({
               !outcomeYes ? 'bg-status-error/20 text-status-error border border-status-error/40' : 'bg-bg-tertiary text-text-muted border border-transparent hover:bg-white/5'
             )}
           >
-            No
+            {noLabel}
           </button>
         </div>
       </div>

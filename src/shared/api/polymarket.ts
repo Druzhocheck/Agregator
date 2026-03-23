@@ -13,22 +13,11 @@ export interface GammaPublicProfile {
 /** Resolve Polymarket proxy wallet for an EOA via Gamma API (same as reference). */
 export async function fetchProxyWallet(eoa: string): Promise<string | null> {
   if (!eoa?.startsWith?.('0x')) return null
-  const url = `${GAMMA_API}/public-profile?address=${encodeURIComponent(eoa)}`
+  // Prefer onboard backend first: it can serve cached/deployed proxy even when Gamma endpoint is unavailable.
+  const requirementsUrl = `/api/onboard/requirements?eoa=${encodeURIComponent(eoa)}`
   try {
-    const res = await fetch(url)
-    let proxy: string | null = null
-    if (!res.ok) {
-      logger.info('fetchProxyWallet: Gamma API response not ok', { status: res.status, url, eoa: eoa.slice(0, 10) + '…' }, { component: 'polymarket', function: 'fetchProxyWallet' })
-    } else {
-      const data = (await res.json()) as GammaPublicProfile
-      proxy = data?.proxyWallet ?? null
-      logger.info('fetchProxyWallet: result', { hasProxy: !!proxy, eoa: eoa.slice(0, 10) + '…' }, { component: 'polymarket', function: 'fetchProxyWallet' })
-      if (proxy) return proxy
-    }
-    // Fallback to local onboarding backend where deployed proxy can be registered before Gamma indexing.
-    const requirementsUrl = `/api/onboard/requirements?eoa=${encodeURIComponent(eoa)}`
     const reqRes = await fetch(requirementsUrl).catch(() => null)
-    logger.info('fetchProxyWallet: onboard fallback', {
+    logger.info('fetchProxyWallet: onboard first', {
       url: requirementsUrl,
       ok: reqRes?.ok,
       status: reqRes?.status,
@@ -47,9 +36,21 @@ export async function fetchProxyWallet(eoa: string): Promise<string | null> {
         return req.proxyWallet
       }
     }
+
+    const url = `${GAMMA_API}/public-profile?address=${encodeURIComponent(eoa)}`
+    const res = await fetch(url)
+    let proxy: string | null = null
+    if (!res.ok) {
+      logger.info('fetchProxyWallet: Gamma API response not ok', { status: res.status, url, eoa: eoa.slice(0, 10) + '…' }, { component: 'polymarket', function: 'fetchProxyWallet' })
+    } else {
+      const data = (await res.json()) as GammaPublicProfile
+      proxy = data?.proxyWallet ?? null
+      logger.info('fetchProxyWallet: result', { hasProxy: !!proxy, eoa: eoa.slice(0, 10) + '…' }, { component: 'polymarket', function: 'fetchProxyWallet' })
+      if (proxy) return proxy
+    }
     return null
   } catch (e) {
-    logger.warn('fetchProxyWallet: failed', { error: String(e), url }, { component: 'polymarket', function: 'fetchProxyWallet' })
+    logger.warn('fetchProxyWallet: failed', { error: String(e), eoa: eoa.slice(0, 10) + '…' }, { component: 'polymarket', function: 'fetchProxyWallet' })
     return null
   }
 }

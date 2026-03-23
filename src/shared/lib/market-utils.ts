@@ -1,4 +1,4 @@
-import type { PolymarketEvent, PolymarketMarket } from '@/entities/market/types'
+import type { PolymarketEvent, PolymarketMarket, PredictMarket, UnifiedEvent, PlatformId } from '@/entities/market/types'
 import { logger } from '@/shared/lib/logger'
 
 /** Detect placeholder outcome names (Person X, Team X, etc.) */
@@ -79,7 +79,8 @@ export function getMarketOutcomeDisplayName(market: PolymarketMarket): string {
 export interface OutcomeToken {
   outcome: string
   tokenId: string
-  market: PolymarketMarket
+  market: PolymarketMarket | PredictMarket
+  platform?: PlatformId
 }
 
 /** Normalize token ID: Gamma may return JSON array string or ids with quotes */
@@ -120,6 +121,34 @@ function parseOutcomes(raw: string | null | undefined): string[] {
   return s.split(',').map((x) => x.trim()).filter(Boolean)
 }
 
+function isBinaryYesNoLabel(value: string): boolean {
+  const normalized = String(value || '').trim().toLowerCase()
+  return normalized === 'yes' || normalized === 'no'
+}
+
+export function getPolymarketOutcomeLabels(market: PolymarketMarket): [string, string] {
+  const outcomes = parseOutcomes(market.outcomes)
+  const first = outcomes[0]?.trim() || 'Yes'
+  const second = outcomes[1]?.trim() || 'No'
+  return [first, second]
+}
+
+export function getPredictOutcomeLabels(market: PredictMarket): [string, string] {
+  const first = market.outcomes?.[0]?.name?.trim() || 'Yes'
+  const second = market.outcomes?.[1]?.name?.trim() || 'No'
+  return [first, second]
+}
+
+export function getPolymarketMarketRowTitle(market: PolymarketMarket): string {
+  const groupTitle = String(market.groupItemTitle || '').trim()
+  if (groupTitle) return groupTitle
+  const [firstOutcome, secondOutcome] = getPolymarketOutcomeLabels(market)
+  const outcomeLabelsAreNamed = !isBinaryYesNoLabel(firstOutcome) && !isBinaryYesNoLabel(secondOutcome)
+  const question = String(market.question || '').trim()
+  if (outcomeLabelsAreNamed && question) return 'Moneyline'
+  return getMarketOutcomeDisplayName(market)
+}
+
 export function isTradableMarket(m: PolymarketMarket): boolean {
   if (m.enableOrderBook === false) return false
   if (m.active === false) return false
@@ -131,7 +160,6 @@ export function isTradableMarket(m: PolymarketMarket): boolean {
 export function getEventOutcomeTokens(event: PolymarketEvent | null): OutcomeToken[] {
   if (!event?.markets?.length) return []
   const tokens: OutcomeToken[] = []
-  const outcomesDefault = ['Yes', 'No']
   const tradableMarkets = event.markets.filter(isTradableMarket)
   logger.info('market-utils: getEventOutcomeTokens markets', {
     totalMarkets: event.markets.length,
@@ -140,7 +168,7 @@ export function getEventOutcomeTokens(event: PolymarketEvent | null): OutcomeTok
   for (let i = 0; i < tradableMarkets.length; i++) {
     const m = tradableMarkets[i]
     const ids = parseClobTokenIds(m.clobTokenIds)
-    const outcomes = parseOutcomes(m.outcomes)
+    const [firstOutcome, secondOutcome] = getPolymarketOutcomeLabels(m)
     // This app currently supports binary rows (Yes/No style). Skip malformed/non-binary token sets.
     if (ids.length < 2) {
       logger.debug('market-utils: skip market with <2 token ids', {
@@ -150,13 +178,33 @@ export function getEventOutcomeTokens(event: PolymarketEvent | null): OutcomeTok
       }, { component: 'market-utils', function: 'getEventOutcomeTokens' })
       continue
     }
-    const firstOutcome = outcomes[0] ?? outcomesDefault[0]
-    const secondOutcome = outcomes[1] ?? outcomesDefault[1]
-    tokens.push({ outcome: firstOutcome, tokenId: ids[0], market: m })
-    tokens.push({ outcome: secondOutcome, tokenId: ids[1], market: m })
+    tokens.push({ outcome: firstOutcome, tokenId: ids[0], market: m, platform: 'polymarket' })
+    tokens.push({ outcome: secondOutcome, tokenId: ids[1], market: m, platform: 'polymarket' })
   }
   logger.info('market-utils: getEventOutcomeTokens result', { tokenPairs: Math.floor(tokens.length / 2), totalTokens: tokens.length }, { component: 'market-utils', function: 'getEventOutcomeTokens' })
   return tokens
+}
+
+/** Outcome tokens for the selected platform from UnifiedEvent. Predict: each instance = one market outcome (Yes/No). */
+export function getUnifiedOutcomeTokens(unified: UnifiedEvent | null, platform: PlatformId): OutcomeToken[] {
+  if (!unified) return []
+  const insts = unified.instances.filter((i) => i.platform === platform)
+  if (!insts.length) return []
+  if (platform === 'polymarket') {
+    const event = insts[0].event as PolymarketEvent
+    return getEventOutcomeTokens(event)
+  }
+  if (platform === 'predict') {
+    const tokens: OutcomeToken[] = []
+    for (const inst of insts) {
+      const market = inst.event as PredictMarket
+      const [firstOutcome, secondOutcome] = getPredictOutcomeLabels(market)
+      tokens.push({ outcome: firstOutcome, tokenId: String(market.id), market, platform: 'predict' })
+      tokens.push({ outcome: secondOutcome, tokenId: String(market.id), market, platform: 'predict' })
+    }
+    return tokens
+  }
+  return []
 }
 
 export function parseOutcomePrices(outcomePrices?: string | null): number[] {
