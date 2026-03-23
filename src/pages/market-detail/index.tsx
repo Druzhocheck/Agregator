@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useLocation, useParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import type { PlatformEventInstance, PlatformId, PolymarketEvent, PredictMarket } from '@/entities/market/types'
+import type { PlatformId, PolymarketEvent, PredictMarket } from '@/entities/market/types'
 import { fetchEventBySlug } from '@/shared/api/polymarket'
 import {
   fetchAllPredictMarkets,
@@ -40,7 +40,7 @@ export function MarketDetailPage() {
         fetchPolymarketEventBySlug: fetchEventBySlug,
         fetchPredictMarketById,
         fetchPredictMarkets: () => fetchAllPredictMarkets({ status: 'OPEN', pageSize: 200, maxPages: 10 }),
-        fetchPredictMarketsByCategorySlug: (categorySlug: string) =>
+        fetchPredictMarketsByCategorySlug: (categorySlug) =>
           fetchPredictMarketsByCategorySlug(categorySlug, { status: 'OPEN' }),
         fetchPredictOrderbook: fetchPredictOrderbook,
       }),
@@ -95,10 +95,8 @@ export function MarketDetailPage() {
     selectedPlatform === 'predict' ? ((selectedToken?.market as PredictMarket | undefined) ?? null) : null
 
   useEffect(() => {
-    const predictInstances = unified?.instances.filter((i: PlatformEventInstance) => i.platform === 'predict') ?? []
-    const predictCategories = [
-      ...new Set(predictInstances.map((i: PlatformEventInstance) => (i.event as PredictMarket).categorySlug || '')),
-    ]
+    const predictInstances = unified?.instances.filter((i) => i.platform === 'predict') ?? []
+    const predictCategories = [...new Set(predictInstances.map((i) => (i.event as PredictMarket).categorySlug || ''))]
     const predictMarketsCount = predictInstances.length
     const outcomeTokenCount = outcomeTokens.length
     logger.info(
@@ -136,16 +134,10 @@ export function MarketDetailPage() {
     )
   }
 
-  const polyEvent = unified.instances.find((i: PlatformEventInstance) => i.platform === 'polymarket')?.event as
-    | PolymarketEvent
-    | undefined
-  const predictMarkets = unified.instances
-    .filter((i: PlatformEventInstance) => i.platform === 'predict')
-    .map((i: PlatformEventInstance) => i.event as PredictMarket)
+  const polyEvent = unified.instances.find((i) => i.platform === 'polymarket')?.event as PolymarketEvent | undefined
+  const predictMarkets = unified.instances.filter((i) => i.platform === 'predict').map((i) => i.event as PredictMarket)
   const hasSinglePredictCategory =
-    new Set(
-      predictMarkets.map((m: PredictMarket) => String(m.categorySlug || '').trim().toLowerCase()).filter(Boolean)
-    ).size === 1
+    new Set(predictMarkets.map((m) => String(m.categorySlug || '').trim().toLowerCase()).filter(Boolean)).size === 1
   const isPredictGroupedEvent = predictMarkets.length > 1 && hasSinglePredictCategory
   const predictDescription =
     selectedPlatform === 'predict'

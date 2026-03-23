@@ -2,9 +2,14 @@ import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { ChevronDown, Plus } from 'lucide-react'
 import { useAccount } from 'wagmi'
+import { useBalance } from 'wagmi'
+import { useQuery } from '@tanstack/react-query'
+import { fetchPredictPositions, fetchPredictPositionsByAddress } from '@/shared/api/predict'
+import { usePredictAuth } from '@/shared/context/predict-auth-context'
 import { useBridgeModals } from '@/shared/context/bridge-modals'
 import { usePolymarketProxy } from '@/shared/hooks/use-polymarket-proxy'
 import { usePolymarketBalance } from '@/shared/hooks/use-polymarket-balance'
+import { BNB_CHAIN_ID, USDT_BNB } from '@/shared/config/api'
 
 function formatUsd(n: number) {
   if (!Number.isFinite(n)) return '0.00'
@@ -14,16 +19,45 @@ function formatUsd(n: number) {
 export function BalanceDropdown() {
   const [open, setOpen] = useState(false)
   const { address, isConnected } = useAccount()
+  const { jwt: predictJwt, account: predictAccount } = usePredictAuth()
   const { openDeposit, openWithdraw } = useBridgeModals()
   const { proxy } = usePolymarketProxy(address ?? undefined)
   const { cash, positionsValue, isLoading } = usePolymarketBalance(proxy)
+  const predictAddress = predictAccount?.address ?? address ?? undefined
 
-  const displayTotal = isConnected && address ? (isLoading ? '…' : `$${formatUsd(cash)}`) : '$0.00'
-  const breakdown = isConnected && proxy
+  const { data: predictUsdtBalance } = useBalance({
+    address: predictAddress as `0x${string}` | undefined,
+    token: USDT_BNB as `0x${string}`,
+    chainId: BNB_CHAIN_ID,
+  })
+
+  const { data: predictPositions = [] } = useQuery({
+    queryKey: ['balances', 'predict-positions', predictAddress, predictJwt],
+    queryFn: async () => {
+      if (predictJwt) return fetchPredictPositions(predictJwt, { first: 100 })
+      if (predictAddress) return fetchPredictPositionsByAddress(predictAddress, { first: 100 })
+      return []
+    },
+    enabled: !!predictAddress,
+    staleTime: 30_000,
+  })
+
+  const predictCash = predictUsdtBalance ? Number(predictUsdtBalance.formatted) : 0
+  const predictPositionsValue = predictPositions.reduce((sum, position) => sum + Number(position.valueUsd ?? 0), 0)
+  const polymarketTotal = proxy && !isLoading ? cash + positionsValue : 0
+  const predictTotal = predictAddress ? predictCash + predictPositionsValue : 0
+  const displayTotal = isConnected && address ? (isLoading ? '…' : `$${formatUsd(polymarketTotal + predictTotal)}`) : '$0.00'
+  const breakdown = isConnected
     ? [
         { platform: 'Polymarket (cash)', value: formatUsd(cash) },
         { platform: 'Polymarket (positions)', value: formatUsd(positionsValue) },
-      ]
+        ...(predictAddress
+          ? [
+              { platform: 'Predict (cash)', value: formatUsd(predictCash) },
+              { platform: 'Predict (positions)', value: formatUsd(predictPositionsValue) },
+            ]
+          : []),
+      ].filter((row) => !(row.platform.startsWith('Polymarket') && !proxy))
     : []
 
   return (
@@ -46,7 +80,7 @@ export function BalanceDropdown() {
             <div className="px-3 py-1 text-tiny text-text-muted uppercase">By platform</div>
             {breakdown.length === 0 ? (
               <div className="px-3 py-2 text-small text-text-muted">
-                {!isConnected ? 'Connect wallet to see balance.' : !proxy ? 'Link Polymarket in Profile.' : 'Loading…'}
+                {!isConnected ? 'Connect wallet to see balance.' : 'Link Polymarket or Predict in Profile.'}
               </div>
             ) : (
               breakdown.map((row) => (

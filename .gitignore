@@ -24,8 +24,6 @@ dist-ssr
 *.ntvs*
 out
 lib
-!src/shared/lib/
-!src/shared/lib/**
 cache
 *.njsproj
 *.sln

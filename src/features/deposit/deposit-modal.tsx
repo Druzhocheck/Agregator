@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { X, ExternalLink, Copy, Check } from 'lucide-react'
 import { useAccount, useBalance, useChainId, usePublicClient, useSendTransaction, useSwitchChain } from 'wagmi'
 import { useQueryClient } from '@tanstack/react-query'
+import { parseUnits } from 'viem'
 import { usePredictAuth } from '@/shared/context/predict-auth-context'
 import { usePolymarketProxy } from '@/shared/hooks/use-polymarket-proxy'
 import { getBridgeCurrencies, getBridgeQuote, type BridgeCurrency, type BridgeQuoteStep } from '@/shared/api/onboard'
@@ -12,8 +13,11 @@ interface DepositModalProps {
 }
 
 const AVALANCHE_CHAIN_ID = 43114
+const POLYGON_CHAIN_ID = 137
 const MIN_DEPOSIT_USD = 1
 const QUOTE_EXPIRY_MS = 120_000
+const SNOWTRACE_BASE = 'https://snowtrace.io'
+const BSCSCAN_BASE = 'https://bscscan.com'
 
 const PLATFORMS = [{ id: 'polymarket', name: 'Polymarket' }, { id: 'predict', name: 'Predict' }] as const
 
@@ -34,7 +38,7 @@ export function DepositModal({ onClose }: DepositModalProps) {
   const [currencies, setCurrencies] = useState<BridgeCurrency[]>([])
   const [selectedToken, setSelectedToken] = useState('')
   const [quoting, setQuoting] = useState(false)
-  const [quote, setQuote] = useState<{ steps: BridgeQuoteStep[]; expectedUsdcOut?: number; expectedTokenIn?: number; quotedAt: number } | null>(null)
+  const [quote, setQuote] = useState<{ steps: BridgeQuoteStep[]; expectedDestinationOut?: number; expectedTokenIn?: number; quotedAt: number } | null>(null)
   const [sending, setSending] = useState(false)
   const [depositStep, setDepositStep] = useState<string | null>(null)
   const [success, setSuccess] = useState(false)
@@ -79,11 +83,16 @@ export function DepositModal({ onClose }: DepositModalProps) {
   const proxyResolved = isPolymarket && !proxyLoading
   const showProxyOnlyMessage = isPolymarket && proxyResolved && !proxy && !loading && !error
   const predictDepositAddress = predictAccount?.address ?? address ?? ''
+  const recipientAddress = isPredict ? predictDepositAddress : (proxy ?? '')
+  const destinationChainId = isPredict ? BNB_CHAIN_ID : POLYGON_CHAIN_ID
+  const destinationCurrency = isPredict ? USDT_BNB : undefined
+  const destinationSymbol = isPredict ? 'USDT' : 'USDC'
+  const destinationExplorerBase = isPredict ? BSCSCAN_BASE : 'https://polygonscan.com'
 
   const selectedAsset = currencies.find((c) => c.address === selectedToken) ?? currencies[0]
   const amountNum = Number(amount || 0)
   const isAvalanche = chainId === AVALANCHE_CHAIN_ID
-  const canGetQuote = !!address && !!proxy && !!selectedAsset && amountNum >= MIN_DEPOSIT_USD
+  const canGetQuote = !!address && !!recipientAddress && !!selectedAsset && amountNum >= MIN_DEPOSIT_USD
   const [, setTick] = useState(0)
   useEffect(() => {
     if (!quote) return
@@ -107,35 +116,54 @@ export function DepositModal({ onClose }: DepositModalProps) {
   })
 
   const copyAddress = async () => {
-    if (!predictDepositAddress) return
-    await navigator.clipboard.writeText(predictDepositAddress)
+    if (!recipientAddress) return
+    await navigator.clipboard.writeText(recipientAddress)
     setCopied(true)
     setTimeout(() => setCopied(false), 1600)
   }
 
   const handleGetQuote = async () => {
-    if (!address || !proxy || !selectedAsset || !canGetQuote) return
+    if (!address || !recipientAddress || !selectedAsset || !canGetQuote) return
     setError(null)
     setSuccess(false)
     setQuote(null)
     setQuoting(true)
     try {
-      const body: { user: string; recipient: string; originCurrency: string; amount?: string; amountWei?: string; exactOutputUsdc?: string } = {
+      const body: {
+        user: string
+        recipient: string
+        originCurrency: string
+        amount?: string
+        amountWei?: string
+        exactOutputUsdc?: string
+        exactOutputAmountWei?: string
+        destinationChainId?: number
+        destinationCurrency?: string
+      } = {
         user: address,
-        recipient: proxy,
+        recipient: recipientAddress,
         originCurrency: selectedAsset.address,
+        destinationChainId,
+        destinationCurrency,
       }
       if (mode === 'receive') {
-        body.exactOutputUsdc = String(amountNum)
+        if (isPredict) {
+          body.exactOutputAmountWei = parseUnits(String(amountNum), 18).toString()
+        } else {
+          body.exactOutputUsdc = String(amountNum)
+        }
       } else if (selectedAsset.symbol.toUpperCase() === 'USDC') {
         body.amount = String(amountNum)
       } else {
-        body.amountWei = String(BigInt(Math.floor(amountNum * 10 ** selectedAsset.decimals)))
+        body.amountWei = parseUnits(String(amountNum), selectedAsset.decimals).toString()
       }
       const q = await getBridgeQuote(body)
-      const expectedUsdcOut = q?.details?.currencyOut?.amount ? Number(q.details.currencyOut.amount) / 1e6 : undefined
+      const outDecimals = isPredict ? 18 : 6
+      const expectedDestinationOut = q?.details?.currencyOut?.amount
+        ? Number(q.details.currencyOut.amount) / 10 ** outDecimals
+        : undefined
       const expectedTokenIn = q?.details?.currencyIn?.amount ? Number(q.details.currencyIn.amount) / 10 ** (selectedAsset.decimals || 18) : undefined
-      setQuote({ steps: q.steps ?? [], expectedUsdcOut, expectedTokenIn, quotedAt: Date.now() })
+      setQuote({ steps: q.steps ?? [], expectedDestinationOut, expectedTokenIn, quotedAt: Date.now() })
     } catch (e) {
       const msg = e instanceof Error ? e.message : 'Failed to get quote'
       setError(msg)
@@ -191,6 +219,9 @@ export function DepositModal({ onClose }: DepositModalProps) {
       queryClient.invalidateQueries({ queryKey: ['positions'] })
       queryClient.invalidateQueries({ queryKey: ['positions', 'balance', proxy] })
       queryClient.invalidateQueries({ queryKey: ['polymarket-proxy', address?.toLowerCase()] })
+      if (isPredict) {
+        queryClient.invalidateQueries({ queryKey: ['balances', 'predict-positions'] })
+      }
       setTimeout(onClose, 2000)
     } catch (e) {
       setDepositStep(null)
@@ -248,53 +279,54 @@ export function DepositModal({ onClose }: DepositModalProps) {
           <p className="text-body text-text-muted">
             Link Polymarket in Profile → Connected Platforms to get your deposit (proxy) address.
           </p>
-        ) : isPredict ? (
+        ) : (isPredict || proxy) ? (
           <>
             <p className="text-small text-text-body mb-3">
-              Predict trading in this app currently uses your BNB wallet / linked Predict account address. Fund it with <strong>USDT on BNB Chain</strong> and keep some <strong>BNB</strong> for gas.
+              {isPredict ? (
+                <>
+                  Deposit is available via <strong>Avalanche → BNB Chain</strong> bridge. Choose token and amount, then sign transactions here.
+                </>
+              ) : (
+                <>
+                  Deposit is available only via <strong>Avalanche → Polygon</strong> bridge. Choose token and amount, then sign transactions here.
+                </>
+              )}
             </p>
             <div className="rounded-panel bg-bg-tertiary border border-white/10 p-3 mb-2">
-              <code className="font-mono text-tiny break-all text-text-body">{predictDepositAddress || 'Connect wallet first'}</code>
+              <code className="font-mono text-tiny break-all text-text-body">{recipientAddress}</code>
             </div>
-            {predictDepositAddress && (
+            {recipientAddress && (
               <div className="flex items-center gap-2 mb-3">
                 <button type="button" onClick={copyAddress} className="p-2 rounded hover:bg-white/10 text-text-muted" title="Copy address">
                   {copied ? <Check className="w-4 h-4 text-status-success" /> : <Copy className="w-4 h-4" />}
                 </button>
                 <a
-                  href={`https://bscscan.com/address/${predictDepositAddress}`}
+                  href={`${destinationExplorerBase}/address/${recipientAddress}`}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="text-tiny text-accent-blue hover:underline inline-flex items-center gap-1"
                 >
-                  View on BscScan <ExternalLink className="w-3 h-3" />
+                  View on Explorer <ExternalLink className="w-3 h-3" />
                 </a>
               </div>
             )}
-            <p className="text-tiny text-text-muted mb-1">
-              Supported collateral for the current Predict flow: USDT on BNB Chain.
-            </p>
-            {predictUsdtBalance && (
-              <p className="text-tiny text-text-muted mb-2">
-                Current BNB-chain USDT balance: {predictUsdtBalance.formatted} {predictUsdtBalance.symbol}
-              </p>
-            )}
-            <p className="text-tiny text-status-warning">
-              Cross-chain bridge into Predict is not wired yet in-app; this deposit flow currently provides the exact address to fund for Predict trading.
-            </p>
-          </>
-        ) : proxy ? (
-          <>
-            <p className="text-small text-text-body mb-3">
-              Deposit is available only via <strong>Avalanche → Polygon</strong> bridge. Choose token and amount, then sign transactions here.
-            </p>
-            <div className="rounded-panel bg-bg-tertiary border border-white/10 p-3 mb-2">
-              <code className="font-mono text-tiny break-all text-text-body">{proxy}</code>
-            </div>
             <p className="text-tiny text-text-muted mb-4">
-              Recipient on Polygon: your proxy wallet above. Minimum suggested deposit: ${MIN_DEPOSIT_USD} USD.
+              {isPredict
+                ? `Recipient on BNB Chain: your ${predictAccount?.address ? 'linked Predict account' : 'connected wallet'} above. Minimum suggested deposit: $${MIN_DEPOSIT_USD} USD.`
+                : `Recipient on Polygon: your proxy wallet above. Minimum suggested deposit: $${MIN_DEPOSIT_USD} USD.`}
             </p>
-            {/* Network switching handled automatically in handleDepositNow; no manual button needed */}
+            {isPredict && (
+              <>
+                <p className="text-tiny text-text-muted mb-1">
+                  Supported collateral for the current Predict flow: <strong>USDT on BNB Chain</strong>. Keep some <strong>BNB</strong> on BNB Chain for trading gas after deposit.
+                </p>
+                {predictUsdtBalance && (
+                  <p className="text-tiny text-text-muted mb-3">
+                    Current BNB-chain USDT balance: {predictUsdtBalance.formatted} {predictUsdtBalance.symbol}
+                  </p>
+                )}
+              </>
+            )}
             <div className="mb-3">
               <label className="text-small text-text-body block mb-1.5">Mode</label>
               <div className="flex gap-2">
@@ -303,7 +335,7 @@ export function DepositModal({ onClose }: DepositModalProps) {
                   onClick={() => { setMode('receive'); setQuote(null) }}
                   className={`flex-1 py-2 rounded-panel text-small ${mode === 'receive' ? 'bg-accent-violet/20 text-accent-violet border border-accent-violet/40' : 'bg-bg-tertiary border border-white/10'}`}
                 >
-                  I want to receive USDC
+                  I want to receive {destinationSymbol}
                 </button>
                 <button
                   type="button"
@@ -335,7 +367,9 @@ export function DepositModal({ onClose }: DepositModalProps) {
             </div>
             <div className="mb-3">
               <label className="text-small text-text-body block mb-1.5">
-                {mode === 'receive' ? 'USDC to receive on Polymarket' : `Amount to spend (${selectedAsset?.symbol ?? 'token'})`} — min ${MIN_DEPOSIT_USD}
+                {mode === 'receive'
+                  ? `${destinationSymbol} to receive on ${isPredict ? 'Predict' : 'Polymarket'}`
+                  : `Amount to spend (${selectedAsset?.symbol ?? 'token'})`} — min ${MIN_DEPOSIT_USD}
               </label>
               <input
                 type="number"
@@ -364,8 +398,10 @@ export function DepositModal({ onClose }: DepositModalProps) {
                 {mode === 'receive' && quote.expectedTokenIn != null && (
                   <p className="text-tiny text-accent-blue mb-2">You pay ≈ {quote.expectedTokenIn.toFixed(6)} {selectedAsset?.symbol} (fees included).</p>
                 )}
-                {mode === 'spend' && quote.expectedUsdcOut != null && (
-                  <p className="text-tiny text-accent-blue mb-2">You will receive ≈ {quote.expectedUsdcOut.toFixed(2)} USDC on Polygon.</p>
+                {mode === 'spend' && quote.expectedDestinationOut != null && (
+                  <p className="text-tiny text-accent-blue mb-2">
+                    You will receive ≈ {quote.expectedDestinationOut.toFixed(isPredict ? 4 : 2)} {destinationSymbol} on {isPredict ? 'BNB Chain' : 'Polygon'}.
+                  </p>
                 )}
                 {quoteExpired && (
                   <p className="text-tiny text-status-warning mb-2">Quote expired. Get a new quote.</p>
@@ -385,10 +421,12 @@ export function DepositModal({ onClose }: DepositModalProps) {
             )}
             {success && (
               <div className="mb-2 space-y-1">
-                <p className="text-tiny text-status-success">Transfer sent. Funds usually arrive in 2–5 minutes.</p>
+                <p className="text-tiny text-status-success">
+                  Transfer sent. Funds usually arrive in 2–5 minutes on {isPredict ? 'BNB Chain / Predict address' : 'Polymarket'}.
+                </p>
                 {lastTxHash && (
                   <a
-                    href={`https://snowtrace.io/tx/${lastTxHash}`}
+                    href={`${SNOWTRACE_BASE}/tx/${lastTxHash}`}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="text-tiny text-accent-blue hover:underline inline-flex items-center gap-1"
