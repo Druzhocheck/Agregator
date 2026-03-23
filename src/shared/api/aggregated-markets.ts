@@ -92,7 +92,7 @@ export async function fetchUnifiedEvents(params: UnifiedEventsParams = {}): Prom
       { component: 'aggregated-markets', function: 'fetchUnifiedEvents' }
     )
     const predictMissingMeta = unified
-      .filter((u) => u.platforms.length === 1 && u.platforms[0] === 'predict')
+      .filter((u: UnifiedEvent) => u.platforms.length === 1 && u.platforms[0] === 'predict')
       .filter((u: UnifiedEvent) => !u.aggregated.endDate && !u.aggregated.volume)
       .slice(0, 8)
       .map((u: UnifiedEvent) => ({ canonicalId: u.canonicalId, title: u.title, instances: u.instances.length }))
